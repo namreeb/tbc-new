@@ -94,10 +94,10 @@ func applyConsumeEffects(agent Agent, partyBuffs *proto.PartyBuffs) {
 
 	// Static Imbues
 	if consumables.MhImbueId != 0 && partyBuffs.WindfuryTotem == proto.TristateEffect_TristateEffectMissing {
-		registerStaticImbue(agent, consumables.MhImbueId, true)
+		registerStaticImbue(agent, consumables.MhImbueId)
 	}
 	if consumables.OhImbueId != 0 {
-		registerStaticImbue(agent, consumables.OhImbueId, false)
+		registerStaticImbue(agent, consumables.OhImbueId)
 	}
 
 	// Scrolls
@@ -701,7 +701,7 @@ func registerDrumsCD(agent Agent, consumables *proto.ConsumesSpec, sharedTimer *
 	}
 }
 
-func registerStaticImbue(agent Agent, imbueId int32, isMH bool) {
+func registerStaticImbue(agent Agent, imbueId int32) {
 	character := agent.GetCharacter()
 	switch imbueId {
 	case 25123: // Mana Oil
@@ -712,55 +712,16 @@ func registerStaticImbue(agent Agent, imbueId int32, isMH bool) {
 		character.AddStat(stats.SpellCritRating, 14)
 	case 28017: // Superior Wizard Oil
 		character.AddStat(stats.SpellDamage, 42)
-	case 29453: // Addy Sharpstone
+	case 29453, 34340: // Adamantite Sharpening Stone / Adamantite Weightstone
 		character.AddStat(stats.MeleeCritRating, 14)
-		if isMH {
-			character.AutoAttacks.MH().BaseDamageMax += 12
-			character.AutoAttacks.MH().BaseDamageMin += 12
-
-			if character.AutoAttacks.OH() != nil {
-				character.AutoAttacks.OH().BaseDamageMax += 12
-				character.AutoAttacks.OH().BaseDamageMin += 12
+		for _, weapon := range []*Weapon{character.AutoAttacks.MH(), character.AutoAttacks.OH(), character.AutoAttacks.Ranged()} {
+			if weapon != nil {
+				weapon.BaseDamageMin += 12
+				weapon.BaseDamageMax += 12
 			}
-		} else {
-			character.AutoAttacks.OH().BaseDamageMax += 12
-			character.AutoAttacks.OH().BaseDamageMin += 12
-
-			if character.AutoAttacks.MH() != nil {
-				character.AutoAttacks.MH().BaseDamageMax += 12
-				character.AutoAttacks.MH().BaseDamageMin += 12
-			}
-		}
-		if character.AutoAttacks.Ranged() != nil {
-			character.AutoAttacks.Ranged().BaseDamageMin += 12
-			character.AutoAttacks.Ranged().BaseDamageMax += 12
 		}
 		// Keep Ranged Crit the same
 		character.AddStat(stats.RangedCritPercent, -(14 / PhysicalCritRatingPerCritPercent))
-
-	case 34340: // Addy Weightstone
-		character.AddStat(stats.MeleeCritRating, 14)
-		if isMH {
-			character.AutoAttacks.MH().BaseDamageMax += 12
-			character.AutoAttacks.MH().BaseDamageMin += 12
-
-			if character.AutoAttacks.OH() != nil {
-				character.AutoAttacks.OH().BaseDamageMax += 12
-				character.AutoAttacks.OH().BaseDamageMin += 12
-			}
-		} else {
-			character.AutoAttacks.OH().BaseDamageMax += 12
-			character.AutoAttacks.OH().BaseDamageMin += 12
-
-			if character.AutoAttacks.MH() != nil {
-				character.AutoAttacks.MH().BaseDamageMax += 12
-				character.AutoAttacks.MH().BaseDamageMin += 12
-			}
-		}
-		if character.AutoAttacks.Ranged() != nil {
-			character.AutoAttacks.Ranged().BaseDamageMin += 12
-			character.AutoAttacks.Ranged().BaseDamageMax += 12
-		}
 	case 28891: // Consecrated Sharpening Stone
 		character.Env.RegisterPostFinalizeEffect(func() {
 			for _, at := range character.AttackTables {

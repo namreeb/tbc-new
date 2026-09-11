@@ -39,6 +39,7 @@ import {
 	Race,
 	Spec,
 	Stat,
+	TristateEffect,
 	UnitReference,
 	UnitStats,
 	WeaponType,
@@ -60,6 +61,8 @@ import { Gear, ItemSwapGear } from './proto_utils/gear';
 import { gemMatchesSocket, isUnrestrictedGem } from './proto_utils/gems';
 import { Stats } from './proto_utils/stats';
 import {
+	ADAMANTITE_SHARPENING_STONE_ID,
+	ADAMANTITE_WEIGHTSTONE_ID,
 	AL_CATEGORY_HARD_MODE,
 	canEquipEnchant,
 	canEquipItem,
@@ -664,12 +667,12 @@ export class Player<SpecType extends Spec> {
 	}
 
 	getConsumes(forSimming?: boolean): ConsumesSpec {
-		const epStats = [...(this.specConfig.consumableStats ?? []), ...this.specConfig.epStats];
-		const dbPotions = this.sim.db.getConsumablesByTypeAndStats(ConsumableType.ConsumableTypePotion, epStats);
-		const dbConjured = relevantStatOptions(CONJURED_CONFIG, this.specConfig)
-			.filter(option => (option.config.showWhen ? option.config.showWhen(this) : true))
-			.map(option => option.config.value);
 		if (forSimming) {
+			const epStats = [...(this.specConfig.consumableStats ?? []), ...this.specConfig.epStats];
+			const dbPotions = this.sim.db.getConsumablesByTypeAndStats(ConsumableType.ConsumableTypePotion, epStats);
+			const dbConjured = relevantStatOptions(CONJURED_CONFIG, this.specConfig)
+				.filter(option => (option.config.showWhen ? option.config.showWhen(this) : true))
+				.map(option => option.config.value);
 			return ConsumesSpec.create({
 				...this.consumables,
 				potions: dbPotions.map(p => p.id),
@@ -678,6 +681,24 @@ export class Player<SpecType extends Spec> {
 		}
 		// Make a defensive copy
 		return ConsumesSpec.clone(this.consumables);
+	}
+
+	// Weapon stones grant their crit rating to a melee weapon only, but the back-end tracks a
+	// single physical crit rating stat shared by melee and ranged, so ranged stat displays have to
+	// offset them back out.
+	getRangedImbueStatOffsets(): Stats {
+		const isWeaponStone = (imbueId: number) => imbueId === ADAMANTITE_SHARPENING_STONE_ID || imbueId === ADAMANTITE_WEIGHTSTONE_ID;
+		const party = this.getParty();
+		const mhImbueApplied = !party || party.getBuffs().windfuryTotem === TristateEffect.TristateEffectMissing;
+
+		let offsets = new Stats();
+		if (mhImbueApplied && isWeaponStone(this.consumables.mhImbueId)) {
+			offsets = offsets.addStat(Stat.StatMeleeCritRating, -14);
+		}
+		if (isWeaponStone(this.consumables.ohImbueId)) {
+			offsets = offsets.addStat(Stat.StatMeleeCritRating, -14);
+		}
+		return offsets;
 	}
 
 	setConsumes(eventID: EventID, newConsumes: ConsumesSpec) {

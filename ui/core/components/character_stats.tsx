@@ -3,6 +3,7 @@ import tippy from 'tippy.js';
 import { ref } from 'tsx-vanilla';
 
 import i18n from '../../i18n/config.js';
+import { translatePseudoStat, translateStat } from '../../i18n/localization';
 import * as Mechanics from '../constants/mechanics.js';
 import { IndividualSimUI } from '../individual_sim_ui';
 import { Player } from '../player.js';
@@ -11,7 +12,6 @@ import { Stats, UnitStat } from '../proto_utils/stats.js';
 import { EventID, TypedEvent } from '../typed_event.js';
 import { Component } from './component.js';
 import { NumberPicker } from './pickers/number_picker.js';
-import { translatePseudoStat, translateStat } from '../../i18n/localization';
 
 export type StatMods = { base?: Stats; gear?: Stats; talents?: Stats; buffs?: Stats; consumes?: Stats; debuffs?: Stats; final?: Stats; stats?: Array<Stat> };
 export type DisplayStat = {
@@ -108,6 +108,7 @@ export class CharacterStats extends Component {
 	masteryElem: HTMLTableCellElement | undefined;
 	hasRacialHitBonus = false;
 	activeRacialExpertiseBonuses = [false, false];
+	rangedImbueStatOffsets = new Stats();
 
 	private readonly player: Player<any>;
 	private readonly modifyDisplayStats?: (player: Player<any>) => StatMods;
@@ -225,6 +226,7 @@ export class CharacterStats extends Component {
 		const statMods = this.modifyDisplayStats ? this.modifyDisplayStats(this.player) : {};
 		this.hasRacialHitBonus = this.player.getRace() === Race.RaceDraenei;
 		this.activeRacialExpertiseBonuses = this.player.getActiveRacialExpertiseBonuses();
+		this.rangedImbueStatOffsets = this.player.getRangedImbueStatOffsets();
 
 		const baseStats = Stats.fromProto(playerStats.baseStats);
 		const gearStats = Stats.fromProto(playerStats.gearStats);
@@ -290,7 +292,7 @@ export class CharacterStats extends Component {
 			const valueElem = (
 				<div className="stat-value-link-container">
 					<button ref={statLinkElemRef} className={clsx('stat-value-link', contextualClass)}>
-						{`${this.statDisplayString(finalStats, unitStat, true, true)} `}
+						{`${this.statDisplayString(finalStats, unitStat, true, true, true)} `}
 					</button>
 				</div>
 			);
@@ -319,7 +321,7 @@ export class CharacterStats extends Component {
 					</div>
 					<div className="character-stats-tooltip-row">
 						<span>{i18n.t('sidebar.character_stats.tooltip.consumes')}</span>
-						<span>{this.statDisplayString(consumesDelta, unitStat)}</span>
+						<span>{this.statDisplayString(consumesDelta, unitStat, false, false, true)}</span>
 					</div>
 					<div className="character-stats-tooltip-row">
 						<span>{i18n.t('sidebar.character_stats.tooltip.debuffs')}</span>
@@ -333,7 +335,7 @@ export class CharacterStats extends Component {
 					)}
 					<div className="character-stats-tooltip-row">
 						<span>{i18n.t('sidebar.character_stats.tooltip.total')}</span>
-						<span>{this.statDisplayString(finalStats, unitStat, true, true)}</span>
+						<span>{this.statDisplayString(finalStats, unitStat, true, true, true)}</span>
 					</div>
 				</div>
 			);
@@ -579,7 +581,7 @@ export class CharacterStats extends Component {
 		}
 	}
 
-	private statDisplayString(deltaStats: Stats, unitStat: UnitStat, includeBase?: boolean, includeGear?: boolean): string {
+	private statDisplayString(deltaStats: Stats, unitStat: UnitStat, includeBase?: boolean, includeGear?: boolean, includeConsumes?: boolean): string {
 		const rootStat = unitStat.hasRootStat() ? unitStat.getRootStat() : null;
 		let rootRatingValue = rootStat !== null ? deltaStats.getStat(rootStat) : null;
 		let percentDecimals = 2;
@@ -628,9 +630,14 @@ export class CharacterStats extends Component {
 			if (this.player.getEquippedItem(ItemSlot.ItemSlotRanged)?.enchant?.effectId === 2523) {
 				rootRatingValue += 30;
 			}
-		} else if (includeGear && rootRatingValue !== null && unitStat.equalsPseudoStat(PseudoStat.PseudoStatRangedCritPercent)) {
-			if (this.player.getEquippedItem(ItemSlot.ItemSlotRanged)?.enchant?.effectId === 2724) {
+		} else if (rootRatingValue !== null && unitStat.equalsPseudoStat(PseudoStat.PseudoStatRangedCritPercent)) {
+			if (includeGear && this.player.getEquippedItem(ItemSlot.ItemSlotRanged)?.enchant?.effectId === 2724) {
 				rootRatingValue += 28;
+			}
+
+			// Remove the weapon stone rating display and only show %
+			if (includeConsumes && rootStat !== null) {
+				rootRatingValue += this.rangedImbueStatOffsets.getStat(rootStat);
 			}
 		} else if (rootStat == Stat.StatBlockValue) {
 			if (rootRatingValue !== null && rootRatingValue > 0) {
