@@ -952,7 +952,7 @@
 					"total": "Total"
 				},
 				"sims": "Sims: {{count}} at {{iterations}} iterations, {{wall}} waiting on the backend ({{avg}} avg)",
-				"poll_sleep": "Polling sleep while waiting: about {{sleep}} ({{polls}} polls at {{interval}} ms)",
+				"polls": "Progress polls before a sim's final result: {{polls}}, each one a full poll interval of waiting",
 				"stat_computations": "Stat computations for constraints: {{count}} concurrent calls, {{wall}} summed wait on the backend ({{avg}} avg per call)",
 				"copy_json": "Copy as JSON"
 			}

@@ -12,7 +12,7 @@ const fakeClock = () => {
 describe('BulkSimTimings', () => {
 	it('accumulates phase durations and counts across repeated phases', () => {
 		const clock = fakeClock();
-		const timings = new BulkSimTimings(500, clock.now);
+		const timings = new BulkSimTimings(clock.now);
 		timings.start();
 		timings.startPhase('build');
 		clock.tick(120);
@@ -29,14 +29,14 @@ describe('BulkSimTimings', () => {
 	});
 
 	it('ignores ending a phase that was never started', () => {
-		const timings = new BulkSimTimings(500, fakeClock().now);
+		const timings = new BulkSimTimings(fakeClock().now);
 		timings.endPhase('gems', 3);
 		assert.deepEqual(timings.report().phases.gems, { ms: 0, count: 0 });
 	});
 
-	it('derives polling sleep from progress payloads before the final one', async () => {
+	it('counts progress payloads before the final one', async () => {
 		const clock = fakeClock();
-		const timings = new BulkSimTimings(500, clock.now);
+		const timings = new BulkSimTimings(clock.now);
 		// Three payloads: two intermediate polls, each followed by a sleep, then the final.
 		await timings.timeSim(async onPayload => {
 			onPayload();
@@ -56,12 +56,11 @@ describe('BulkSimTimings', () => {
 		assert.equal(report.sims.count, 2);
 		assert.equal(report.sims.wallMs, 1025);
 		assert.equal(report.sims.pollsBeforeFinal, 2);
-		assert.equal(report.sims.pollSleepMs, 1000);
 	});
 
 	it('still records a sim that throws, and rethrows', async () => {
 		const clock = fakeClock();
-		const timings = new BulkSimTimings(500, clock.now);
+		const timings = new BulkSimTimings(clock.now);
 		await assert.rejects(
 			timings.timeSim(async () => {
 				clock.tick(10);
@@ -75,7 +74,7 @@ describe('BulkSimTimings', () => {
 
 	it('totals stat computations', async () => {
 		const clock = fakeClock();
-		const timings = new BulkSimTimings(500, clock.now);
+		const timings = new BulkSimTimings(clock.now);
 		for (const ms of [3, 4, 5]) {
 			await timings.timeStatComputation(async () => {
 				clock.tick(ms);
@@ -85,7 +84,7 @@ describe('BulkSimTimings', () => {
 	});
 
 	it('returns a snapshot that does not alias internal state', () => {
-		const timings = new BulkSimTimings(500, fakeClock().now);
+		const timings = new BulkSimTimings(fakeClock().now);
 		const report = timings.report();
 		report.phases.build.count = 99;
 		assert.equal(timings.report().phases.build.count, 0);

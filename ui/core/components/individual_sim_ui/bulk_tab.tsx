@@ -28,7 +28,6 @@ import BulkSimResultRenderer from './bulk/bulk_sim_results_renderer';
 import BulkStatConstraintsPicker from './bulk/bulk_stat_constraints';
 import { BULK_PHASES, BulkSimTimings, BulkTimingReport, formatDurationMs } from './bulk/bulk_timings';
 import { filterByStatConstraints } from './bulk/stat_constraints';
-import { ASYNC_PROGRESS_POLL_INTERVAL_MS } from '../../../worker/types';
 import { CopyButton } from '../copy_button';
 import GemSelectorModal from './bulk/gem_selector_modal';
 import {
@@ -872,13 +871,7 @@ export class BulkTab extends SimTab {
 						avg: avg(report.sims.wallMs, report.sims.count),
 					})}
 				</div>
-				<div className="fs-content">
-					{t('poll_sleep', {
-						sleep: formatDurationMs(report.sims.pollSleepMs),
-						polls: report.sims.pollsBeforeFinal,
-						interval: report.pollIntervalMs,
-					})}
-				</div>
+				<div className="fs-content">{t('polls', { polls: report.sims.pollsBeforeFinal })}</div>
 				{report.statComputations.count > 0 && (
 					<div className="fs-content">
 						{t('stat_computations', {
@@ -1368,7 +1361,7 @@ export class BulkTab extends SimTab {
 		this.originalGearResults = null;
 		this.lastTimings = null;
 
-		const timings = new BulkSimTimings(ASYNC_PROGRESS_POLL_INTERVAL_MS);
+		const timings = new BulkSimTimings();
 		timings.start();
 		timings.iterationsPerSim = this.simUI.sim.getIterations();
 

@@ -19,9 +19,8 @@ export interface BackendCallTiming {
 
 export interface SimCallTiming extends BackendCallTiming {
 	// Progress payloads received before the final one. Each of these was
-	// followed by one poll sleep in the worker, so this bounds the idle time.
+	// followed by one poll sleep in the worker before the result was fetched.
 	pollsBeforeFinal: number;
-	pollSleepMs: number;
 }
 
 export interface BulkTimingReport {
@@ -31,12 +30,10 @@ export interface BulkTimingReport {
 	phases: Record<BulkPhase, PhaseTiming>;
 	sims: SimCallTiming;
 	statComputations: BackendCallTiming;
-	pollIntervalMs: number;
 }
 
 export class BulkSimTimings {
 	private readonly now: () => number;
-	private readonly pollIntervalMs: number;
 	private startedAt: number | null = null;
 	private finishedAt: number | null = null;
 	private phaseStartedAt: Partial<Record<BulkPhase, number>> = {};
@@ -47,13 +44,12 @@ export class BulkSimTimings {
 		baselineSim: { ms: 0, count: 0 },
 		candidateSims: { ms: 0, count: 0 },
 	};
-	private readonly sims: SimCallTiming = { count: 0, wallMs: 0, pollsBeforeFinal: 0, pollSleepMs: 0 };
+	private readonly sims: SimCallTiming = { count: 0, wallMs: 0, pollsBeforeFinal: 0 };
 	private readonly statComputations: BackendCallTiming = { count: 0, wallMs: 0 };
 	combinations = 0;
 	iterationsPerSim = 0;
 
-	constructor(pollIntervalMs: number, now: () => number = () => performance.now()) {
-		this.pollIntervalMs = pollIntervalMs;
+	constructor(now: () => number = () => performance.now()) {
 		this.now = now;
 	}
 
@@ -80,7 +76,7 @@ export class BulkSimTimings {
 	}
 
 	// Times one sim request. The callback receives a function to call once per
-	// progress payload, which is how polling sleep is derived.
+	// progress payload, which is how the poll count is derived.
 	async timeSim<T>(run: (onProgressPayload: () => void) => Promise<T>): Promise<T> {
 		const startedAt = this.now();
 		let payloads = 0;
@@ -89,11 +85,9 @@ export class BulkSimTimings {
 				payloads += 1;
 			});
 		} finally {
-			const pollsBeforeFinal = Math.max(0, payloads - 1);
 			this.sims.count += 1;
 			this.sims.wallMs += this.now() - startedAt;
-			this.sims.pollsBeforeFinal += pollsBeforeFinal;
-			this.sims.pollSleepMs += pollsBeforeFinal * this.pollIntervalMs;
+			this.sims.pollsBeforeFinal += Math.max(0, payloads - 1);
 		}
 	}
 
@@ -116,7 +110,6 @@ export class BulkSimTimings {
 			phases: Object.fromEntries(BULK_PHASES.map(phase => [phase, { ...this.phases[phase] }])) as Record<BulkPhase, PhaseTiming>,
 			sims: { ...this.sims },
 			statComputations: { ...this.statComputations },
-			pollIntervalMs: this.pollIntervalMs,
 		};
 	}
 }

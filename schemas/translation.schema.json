@@ -3325,12 +3325,12 @@
 									"required": ["build", "gems", "constraints", "baselineSim", "candidateSims", "total"]
 								},
 								"sims": { "type": "string" },
-								"poll_sleep": { "type": "string" },
+								"polls": { "type": "string" },
 								"stat_computations": { "type": "string" },
 								"copy_json": { "type": "string" }
 							},
 							"additionalProperties": false,
-							"required": ["title", "phase", "duration", "count", "per_item", "phases", "sims", "poll_sleep", "stat_computations", "copy_json"]
+							"required": ["title", "phase", "duration", "count", "per_item", "phases", "sims", "polls", "stat_computations", "copy_json"]
 						}
 					},
 					"additionalProperties": false,
