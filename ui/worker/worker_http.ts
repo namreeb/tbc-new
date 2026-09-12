@@ -1,4 +1,3 @@
-import { ASYNC_PROGRESS_POLL_INTERVAL_MS } from './types';
 import { noop, sleep } from './utils';
 import { HandlerFunction, WorkerInterface } from './worker_interface';
 
@@ -36,7 +35,7 @@ export const setupHttpWorker = (baseURL: string) => {
 			const ab = await progressResponse.arrayBuffer();
 			outputData = new Uint8Array(ab);
 			progress(outputData);
-			await sleep(ASYNC_PROGRESS_POLL_INTERVAL_MS);
+			await sleep(500);
 		}
 		return outputData;
 	};
