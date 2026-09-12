@@ -1,3 +1,8 @@
+// How long the HTTP worker sleeps between progress polls of an async request.
+// Shared so the UI can estimate polling idle time from the number of progress
+// payloads it received.
+export const ASYNC_PROGRESS_POLL_INTERVAL_MS = 500;
+
 /**
  * API endpoints and exposed wasm function names. Also used as request identifier.
  */
