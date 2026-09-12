@@ -116,11 +116,11 @@ func TestEmptySocketNeverEarnsSocketBonus(t *testing.T) {
 // Guards the claim made above, so that if a prismatic socket ever appears on a TBC item the exception
 // in TestEmptySocketNeverEarnsSocketBonus has to be revisited rather than silently mattering.
 func TestNoTBCItemHasAPrismaticSocket(t *testing.T) {
-	if len(ItemsByID) == 0 {
+	if len(AllItems()) == 0 {
 		t.Skip("no item database loaded; run with -tags with_db")
 	}
 
-	for _, item := range ItemsByID {
+	for _, item := range AllItems() {
 		for _, socketColor := range item.GemSockets {
 			if socketColor == proto.GemColor_GemColorPrismatic {
 				t.Fatalf("%q has a prismatic socket; empty-prismatic-socket handling now matters", item.Name)
@@ -152,11 +152,11 @@ func TestDisabledGemKeepsSocketBonusButLosesItsStats(t *testing.T) {
 // The colour rules above are synthetic. This runs the same invariant over every gem actually in the
 // database, so a gem whose colour is mis-parsed on import is caught too.
 func TestSocketBonusForEveryGemInDatabase(t *testing.T) {
-	if len(GemsByID) == 0 {
+	if len(AllGems()) == 0 {
 		t.Skip("no gem database loaded; run with -tags with_db")
 	}
 
-	for _, gem := range GemsByID {
+	for _, gem := range AllGems() {
 		for _, socketColor := range allGemColors {
 			item := Item{
 				ID:          1,
@@ -181,12 +181,12 @@ func TestSocketBonusForEveryGemInDatabase(t *testing.T) {
 // Every meta gem in the database, disabled: no stats of its own, but the head socket bonus survives.
 // This is the bug this change exists to fix.
 func TestEveryDisabledMetaGemInDatabaseKeepsSocketBonus(t *testing.T) {
-	if len(GemsByID) == 0 {
+	if len(AllGems()) == 0 {
 		t.Skip("no gem database loaded; run with -tags with_db")
 	}
 
 	checked := 0
-	for _, gem := range GemsByID {
+	for _, gem := range AllGems() {
 		if gem.Color != proto.GemColor_GemColorMeta {
 			continue
 		}

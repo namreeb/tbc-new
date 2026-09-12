@@ -39,7 +39,7 @@ func DefaultItemSetSlots() []proto.ItemSlot {
 
 func (set ItemSet) Items() []Item {
 	var items []Item
-	for _, item := range ItemsByID {
+	for _, item := range AllItems() {
 		if item.SetName == "" {
 			continue
 		}
@@ -66,7 +66,7 @@ func NewItemSet(set ItemSet) *ItemSet {
 		set.Slots = DefaultItemSetSlots()
 	}
 
-	for _, item := range ItemsByID {
+	for _, item := range AllItems() {
 		if item.SetName == "" {
 			continue
 		}

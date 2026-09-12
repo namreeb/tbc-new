@@ -21,13 +21,15 @@ var ItemEffectRandPropPointsByIlvl = map[int32]ItemEffectRandPropPoints{}
 var ConsumablesByID = map[int32]Consumable{}
 var SpellEffectsById = map[int32]*proto.SpellEffect{}
 
-var mutex = &sync.Mutex{}
+// Guards the maps above. Requests register any items they carry via
+// addToDatabase while other requests are reading, so every read must go
+// through the Lookup*/Get*/All* accessors below, which take the read lock.
+// Accessors are leaves: they never call each other while holding the lock.
+var dbMutex sync.RWMutex
 
 func addToDatabase(newDB *proto.SimDatabase) {
-	// create mutex lock here and lock it
-	// defer unlock it
-	mutex.Lock()
-	defer mutex.Unlock()
+	dbMutex.Lock()
+	defer dbMutex.Unlock()
 
 	for _, v := range newDB.Items {
 		if _, ok := ItemsByID[v.Id]; !ok {
@@ -67,6 +69,76 @@ func addToDatabase(newDB *proto.SimDatabase) {
 			SpellEffectsById[v.Id] = v
 		}
 	}
+}
+
+func LookupItem(id int32) (Item, bool) {
+	dbMutex.RLock()
+	defer dbMutex.RUnlock()
+	item, ok := ItemsByID[id]
+	return item, ok
+}
+
+func LookupGem(id int32) (Gem, bool) {
+	dbMutex.RLock()
+	defer dbMutex.RUnlock()
+	gem, ok := GemsByID[id]
+	return gem, ok
+}
+
+func LookupRandomSuffix(id int32) (RandomSuffix, bool) {
+	dbMutex.RLock()
+	defer dbMutex.RUnlock()
+	suffix, ok := RandomSuffixesByID[id]
+	return suffix, ok
+}
+
+func LookupEnchant(effectID int32) (Enchant, bool) {
+	dbMutex.RLock()
+	defer dbMutex.RUnlock()
+	enchant, ok := EnchantsByEffectID[effectID]
+	return enchant, ok
+}
+
+func LookupItemEffectRandPropPoints(ilvl int32) (ItemEffectRandPropPoints, bool) {
+	dbMutex.RLock()
+	defer dbMutex.RUnlock()
+	rpp, ok := ItemEffectRandPropPointsByIlvl[ilvl]
+	return rpp, ok
+}
+
+// Returns the zero Consumable when the id is unknown, matching the map read it replaces.
+func GetConsumableByID(id int32) Consumable {
+	dbMutex.RLock()
+	defer dbMutex.RUnlock()
+	return ConsumablesByID[id]
+}
+
+// Returns nil when the id is unknown, matching the map read it replaces.
+func GetSpellEffectByID(id int32) *proto.SpellEffect {
+	dbMutex.RLock()
+	defer dbMutex.RUnlock()
+	return SpellEffectsById[id]
+}
+
+// Snapshots for callers that iterate; the copy is taken under the read lock.
+func AllItems() []Item {
+	dbMutex.RLock()
+	defer dbMutex.RUnlock()
+	items := make([]Item, 0, len(ItemsByID))
+	for _, item := range ItemsByID {
+		items = append(items, item)
+	}
+	return items
+}
+
+func AllGems() []Gem {
+	dbMutex.RLock()
+	defer dbMutex.RUnlock()
+	gems := make([]Gem, 0, len(GemsByID))
+	for _, gem := range GemsByID {
+		gems = append(gems, gem)
+	}
+	return gems
 }
 
 type ItemEffectRandPropPoints struct {
@@ -388,7 +460,7 @@ func (equipment *Equipment) containsGemInSlot(itemID int32, slot proto.ItemSlot)
 }
 
 func GetEnchantByEffectID(effectID int32) *Enchant {
-	if enchant, ok := EnchantsByEffectID[effectID]; ok {
+	if enchant, ok := LookupEnchant(effectID); ok {
 		return &enchant
 	}
 	return nil
@@ -421,7 +493,7 @@ func ProtoToEquipmentSpec(es *proto.EquipmentSpec) EquipmentSpec {
 
 func NewItem(itemSpec ItemSpec) Item {
 	item := Item{}
-	if foundItem, ok := ItemsByID[itemSpec.ID]; ok {
+	if foundItem, ok := LookupItem(itemSpec.ID); ok {
 		item = foundItem
 	} else {
 		panic(fmt.Sprintf("No item with id: %d", itemSpec.ID))
@@ -435,7 +507,7 @@ func NewItem(itemSpec ItemSpec) Item {
 	item.RandPropPoints = scalingOptions.RandPropPoints
 
 	if itemSpec.RandomSuffix != 0 {
-		if randomSuffix, ok := RandomSuffixesByID[itemSpec.RandomSuffix]; ok {
+		if randomSuffix, ok := LookupRandomSuffix(itemSpec.RandomSuffix); ok {
 			item.RandomSuffix = randomSuffix
 		} else {
 			panic(fmt.Sprintf("No random suffix with id: %d", itemSpec.RandomSuffix))
@@ -443,7 +515,7 @@ func NewItem(itemSpec ItemSpec) Item {
 	}
 
 	if itemSpec.Enchant != 0 {
-		if enchant, ok := EnchantsByEffectID[itemSpec.Enchant]; ok {
+		if enchant, ok := LookupEnchant(itemSpec.Enchant); ok {
 			item.Enchant = enchant
 		}
 		// else {
@@ -460,7 +532,7 @@ func NewItem(itemSpec ItemSpec) Item {
 
 		item.Gems = make([]Gem, numGems)
 		for gemIdx, gemID := range itemSpec.Gems {
-			if gem, ok := GemsByID[gemID]; ok {
+			if gem, ok := LookupGem(gemID); ok {
 				gem.Disabled = itemSpec.MetaGemDisabled && gem.Color == proto.GemColor_GemColorMeta
 				item.Gems[gemIdx] = gem
 			} else {
@@ -579,7 +651,7 @@ func ItemEquipmentGemAndEnchantStats(item Item) stats.Stats {
 }
 
 func GetItemByID(id int32) *Item {
-	if item, ok := ItemsByID[id]; ok {
+	if item, ok := LookupItem(id); ok {
 		return &item
 	}
 	return nil
