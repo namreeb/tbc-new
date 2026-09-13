@@ -267,19 +267,23 @@ export class PresetConfigurationPicker extends Component {
 		const types = this.types;
 		const checkAll = !types;
 
-		const hasGear = (checkAll || types.includes(PresetConfigurationCategory.Gear))
-			? (gear ? EquipmentSpec.equals(gear.gear, this.simUI.player.getGear().asSpec()) : true)
-			: true;
-		const hasTalents = (checkAll || types.includes(PresetConfigurationCategory.Talents))
-			? (talents
-				? SavedTalents.equals(
-						talents.data,
-						SavedTalents.create({
-							talentsString: this.simUI.player.getTalentsString(),
-						}),
-					)
-				: true)
-			: true;
+		const hasGear =
+			checkAll || types.includes(PresetConfigurationCategory.Gear)
+				? gear
+					? EquipmentSpec.equals(gear.gear, this.simUI.player.getGear().asSpec())
+					: true
+				: true;
+		const hasTalents =
+			checkAll || types.includes(PresetConfigurationCategory.Talents)
+				? talents
+					? SavedTalents.equals(
+							talents.data,
+							SavedTalents.create({
+								talentsString: this.simUI.player.getTalentsString(),
+							}),
+						)
+					: true
+				: true;
 		let hasRotation = true;
 		if (checkAll || types.includes(PresetConfigurationCategory.Rotation) || types.includes(PresetConfigurationCategory.RotationType)) {
 			if (rotationType) {
@@ -289,9 +293,12 @@ export class PresetConfigurationPicker extends Component {
 				hasRotation = isEqualAPLRotation(this.simUI.player, activeRotation, rotation.rotation.rotation);
 			}
 		}
-		const hasEpWeights = (checkAll || types.includes(PresetConfigurationCategory.EPWeights))
-			? (epWeights ? this.simUI.player.getEpWeights().equals(epWeights.epWeights) : true)
-			: true;
+		const hasEpWeights =
+			checkAll || types.includes(PresetConfigurationCategory.EPWeights)
+				? epWeights
+					? this.simUI.player.getEpWeights().equals(epWeights.epWeights)
+					: true
+				: true;
 
 		let hasEncounter = true;
 		let hasHealingModel = true;
@@ -327,7 +334,10 @@ export class PresetConfigurationPicker extends Component {
 			hasItemSwap =
 				settings?.playerOptions?.itemSwap === undefined ||
 				(!settings?.playerOptions?.enableItemSwap && !this.simUI.player.itemSwapSettings.getEnableItemSwap()) ||
-				ItemSwap.equals(stripItemSwapApiVersion(this.simUI.player.itemSwapSettings?.toProto()), stripItemSwapApiVersion(settings?.playerOptions?.itemSwap));
+				ItemSwap.equals(
+					stripItemSwapApiVersion(this.simUI.player.itemSwapSettings?.toProto()),
+					stripItemSwapApiVersion(settings?.playerOptions?.itemSwap),
+				);
 			hasSpecOptions =
 				settings?.specOptions && Object.keys(settings.specOptions).length
 					? JSON.stringify(this.simUI.player.getSpecOptions()) == JSON.stringify(settings.specOptions)

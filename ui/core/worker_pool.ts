@@ -1,8 +1,15 @@
 import { SimRequest, WorkerReceiveMessage, WorkerSendMessage } from '../worker/types';
+import { WorkerPoolManager } from './concurrent_worker_pool';
 import { REPO_NAME } from './constants/other.js';
 import {
 	AbortRequest,
 	AbortResponse,
+	BulkSimCountResult,
+	BulkSimRequest,
+	BulkSimRequestSplitRequest,
+	BulkSimRequestSplitResult,
+	BulkSimResult,
+	BulkSimResultCombinationRequest,
 	ComputeStatsRequest,
 	ComputeStatsResult,
 	ProgressMetrics,
@@ -18,7 +25,6 @@ import {
 } from './proto/api.js';
 import { SimSignals } from './sim_signal_manager';
 import { isDevMode, noop } from './utils';
-import { WorkerPoolManager } from './concurrent_worker_pool';
 
 const SIM_WORKER_URL = `/${REPO_NAME}/sim_worker.js`;
 export type WorkerProgressCallback = (progressMetrics: ProgressMetrics) => void;
@@ -97,6 +103,39 @@ export class WorkerPool {
 		return StatWeightsResult.fromBinary(result);
 	}
 
+	// Batch sim in one worker: enumerate, gem, constrain and sim there. On a
+	// native server that is the whole batch; on wasm, one piece of a split
+	// batch (see runConcurrentBulkSim).
+	async bulkSimAsync(request: BulkSimRequest, onProgress: WorkerProgressCallback, signals: SimSignals): Promise<BulkSimResult> {
+		const worker = this.getLeastBusyWorker();
+		const id = generateRequestId(SimRequest.bulkSimAsync);
+
+		signals.abort.onTrigger(async () => {
+			await worker.sendAbortById(id);
+		});
+
+		const combinations = request.comboEnd > request.comboStart ? request.comboEnd - request.comboStart : Math.max(1, request.pool.length);
+		const iterations = (request.settings?.iterationsPerCombo || request.base?.simOptions?.iterations || 1) * combinations;
+		const result = await this.doAsyncRequest(SimRequest.bulkSimAsync, BulkSimRequest.toBinary(request), id, worker, onProgress, iterations);
+
+		return result.finalBulkResult!;
+	}
+
+	async bulkSimCount(request: BulkSimRequest): Promise<BulkSimCountResult> {
+		const result = await this.makeApiCall(SimRequest.bulkSimCount, BulkSimRequest.toBinary(request));
+		return BulkSimCountResult.fromBinary(result);
+	}
+
+	async bulkSimRequestSplit(request: BulkSimRequestSplitRequest): Promise<BulkSimRequestSplitResult> {
+		const result = await this.makeApiCall(SimRequest.bulkSimRequestSplit, BulkSimRequestSplitRequest.toBinary(request));
+		return BulkSimRequestSplitResult.fromBinary(result);
+	}
+
+	async bulkSimResultCombination(request: BulkSimResultCombinationRequest): Promise<BulkSimResult> {
+		const result = await this.makeApiCall(SimRequest.bulkSimResultCombination, BulkSimResultCombinationRequest.toBinary(request));
+		return BulkSimResult.fromBinary(result);
+	}
+
 	async raidSimAsync(request: RaidSimRequest, onProgress: WorkerProgressCallback, signals: SimSignals): Promise<RaidSimResult> {
 		const worker = this.getLeastBusyWorker();
 		worker.log('Raid sim request: ' + RaidSimRequest.toJsonString(request));
@@ -149,7 +188,7 @@ export class WorkerPool {
 	 * @returns The final ProgressMetrics.
 	 */
 	private async doAsyncRequest(
-		requestName: SimRequest.raidSimAsync | SimRequest.statWeightsAsync,
+		requestName: SimRequest.raidSimAsync | SimRequest.statWeightsAsync | SimRequest.bulkSimAsync,
 		request: Uint8Array,
 		id: string,
 		worker: SimWorker,
@@ -184,7 +223,7 @@ export class WorkerPool {
 			onProgress(progress);
 			worker.updateSimTask(id, Math.max(1, progress.totalIterations - progress.completedIterations));
 			// If we are done, stop adding the handler.
-			if (progress.finalRaidResult != null || progress.finalWeightResult != null) {
+			if (progress.finalRaidResult != null || progress.finalWeightResult != null || progress.finalBulkResult != null) {
 				onFinal(progress);
 				return;
 			}

@@ -325,8 +325,7 @@ export class ReforgeOptimizer {
 
 		this.simUI.addWarning({
 			updateOn: TypedEvent.onAny([this.player.epWeightsChangeEmitter, this.useCustomEPValuesChangeEmitter]),
-			getContent: () =>
-				this.player.hasCustomEPWeights() && !this.useCustomEPValues ? i18n.t('sidebar.warnings.custom_ep_not_enabled') : '',
+			getContent: () => (this.player.hasCustomEPWeights() && !this.useCustomEPValues ? i18n.t('sidebar.warnings.custom_ep_not_enabled') : ''),
 		});
 	}
 
@@ -1455,6 +1454,61 @@ export class ReforgeOptimizer {
 		}
 
 		return variables;
+	}
+
+	// The inputs the server-side batch sim needs to choose gems the way this
+	// optimizer does: the gems eligible for this character (the static filters
+	// of buildGemOptions; socket matching and per-candidate cap pruning happen
+	// on the server), the weights, caps and frozen slots.
+	getBatchGemSettings(): {
+		eligibleGems: Array<{ gem: Gem; isJC: boolean }>;
+		weights: Stats;
+		statCaps: Stats;
+		undershootCaps: Stats;
+		softCaps: StatCap[];
+		frozenSlots: ItemSlot[];
+	} {
+		const hasJC = this.player.hasProfession(Profession.Jewelcrafting);
+		const epStats = [...this.simUI.individualConfig.epStats];
+		if (epStats.includes(Stat.StatAttackPower) && !epStats.includes(Stat.StatRangedAttackPower)) {
+			epStats.push(Stat.StatRangedAttackPower);
+		} else if (epStats.includes(Stat.StatRangedAttackPower) && !epStats.includes(Stat.StatAttackPower)) {
+			epStats.push(Stat.StatAttackPower);
+		}
+
+		const eligibleGems: Array<{ gem: Gem; isJC: boolean }> = [];
+		for (const gem of this.player.getGems()) {
+			if (gem.color == GemColor.GemColorMeta) continue;
+			const isJC = gem.requiredProfession == Profession.Jewelcrafting;
+			const statCount = gem.stats.filter(stat => stat > 0).length;
+			if (
+				(this.disableUniqueGems && gem.unique && !isJC) ||
+				(isJC && !hasJC) ||
+				statCount == 0 ||
+				gem.phase > this.maxGemPhase ||
+				gem.quality > this.maxGemQuality
+			) {
+				continue;
+			}
+			const allStatsValid = gem.stats.every(
+				(statValue, statIdx) =>
+					statValue == 0 ||
+					epStats.includes(statIdx) ||
+					(statIdx == Stat.StatStamina && (this.isTankSpec || statCount != 1)) ||
+					(statIdx == Stat.StatHealingPower && epStats.includes(Stat.StatSpellDamage)),
+			);
+			if (!allStatsValid) continue;
+			eligibleGems.push({ gem, isJC });
+		}
+
+		return {
+			eligibleGems,
+			weights: this.preCapEPs,
+			statCaps: this.processedStatCaps,
+			undershootCaps: this.undershootCaps,
+			softCaps: this.isAllowedToOverrideStatCaps ? [] : this.softCapsConfigWithLimits,
+			frozenSlots: Array.from(this.frozenItemSlots),
+		};
 	}
 
 	buildGemOptions(preCapEPs: Stats, reforgeCaps: Stats, reforgeSoftCaps: StatCap[]): Map<GemColor, GemData[]> {

@@ -1,5 +1,10 @@
 import { SimRequest } from '../worker/types';
 import {
+	BulkSimPhase,
+	BulkSimRequest,
+	BulkSimRequestSplitRequest,
+	BulkSimResult,
+	BulkSimResultCombinationRequest,
 	ErrorOutcome,
 	ErrorOutcomeType,
 	ProgressMetrics,
@@ -306,4 +311,139 @@ export const runConcurrentStatWeights = async (
 	if (weightResult.error) return makeAndSendWeightsError(weightResult.error, onProgress);
 	onProgress(ProgressMetrics.create({ finalWeightResult: weightResult }));
 	return weightResult;
+};
+
+// Progress of a batch split into pieces. The batch is as far along as its
+// slowest piece, so that piece's phase is reported, with the work every piece
+// has done in that phase summed. A piece reports a phase it has nothing to do
+// in (no constraints, gems off) not at all, so only pieces that have reported
+// the phase count.
+class ConcurrentBulkProgress {
+	private readonly phases: Map<BulkSimPhase, { completed: number; total: number }>[];
+	private readonly latestPhase: BulkSimPhase[];
+	readonly finalResults: BulkSimResult[];
+
+	constructor(concurrency: number) {
+		this.phases = Array.from({ length: concurrency }, () => new Map());
+		this.latestPhase = Array(concurrency).fill(BulkSimPhase.BulkSimPhaseUnknown);
+		this.finalResults = Array(concurrency);
+	}
+
+	updateProgress(idx: number, msg: ProgressMetrics) {
+		if (msg.finalBulkResult) {
+			this.finalResults[idx] = msg.finalBulkResult;
+			return;
+		}
+		this.latestPhase[idx] = msg.bulkPhase;
+		this.phases[idx].set(msg.bulkPhase, { completed: msg.completedSims, total: msg.totalSims });
+	}
+
+	makeProgressMetrics(): ProgressMetrics {
+		const running = this.latestPhase.filter((_, idx) => !this.finalResults[idx]);
+		const phase = running.length ? Math.min(...running) : BulkSimPhase.BulkSimPhaseSims;
+		let completed = 0;
+		let total = 0;
+		for (const piece of this.phases) {
+			const done = piece.get(phase);
+			if (!done) continue;
+			completed += done.completed;
+			total += done.total;
+		}
+		return ProgressMetrics.create({ bulkPhase: phase, completedSims: completed, totalSims: total });
+	}
+}
+
+const makeAndSendBulkSimError = (err: string | ErrorOutcome, onProgress: WorkerProgressCallback): BulkSimResult => {
+	const errRes = BulkSimResult.create();
+	if (typeof err === 'string') {
+		console.error(err);
+		errRes.error = ErrorOutcome.create({ message: err });
+	} else {
+		if (err.message) console.error(err.message);
+		errRes.error = err;
+	}
+	onProgress(ProgressMetrics.create({ finalBulkResult: errRes }));
+	return errRes;
+};
+
+// Runs a batch across the wasm worker pool: the batch is split by combination
+// range into one piece per worker, each piece runs the whole pipeline on its
+// range, and the pieces' results are merged. Splitting and merging are done by
+// the sim itself, so the outcome is the one a single worker would produce.
+export const runConcurrentBulkSim = async (
+	request: BulkSimRequest,
+	workerPool: WorkerPool,
+	onProgress: WorkerProgressCallback,
+	signals: SimSignals,
+): Promise<BulkSimResult> => {
+	const splitResult = await workerPool.bulkSimRequestSplit(
+		BulkSimRequestSplitRequest.create({
+			splitCount: workerPool.getNumWorkers(),
+			request: request,
+		}),
+	);
+
+	if (splitResult.errorResult) {
+		return makeAndSendBulkSimError(splitResult.errorResult, onProgress);
+	}
+
+	if (signals.abort.isTriggered()) {
+		return makeAndSendBulkSimError(ErrorOutcome.create({ type: ErrorOutcomeType.ErrorOutcomeAborted }), onProgress);
+	}
+
+	console.log(`Running batch as ${splitResult.splitsDone} concurrent pieces...`);
+
+	const pieces = splitResult.requests;
+	const progress = new ConcurrentBulkProgress(pieces.length);
+	const errorResult = await new Promise<BulkSimResult | undefined>(resolve => {
+		let running = pieces.length;
+
+		const progressHandler = (idx: number, pm: ProgressMetrics) => {
+			if (!running) return;
+
+			progress.updateProgress(idx, pm);
+
+			if (!pm.finalBulkResult) {
+				onProgress(progress.makeProgressMetrics());
+				return;
+			}
+
+			running--;
+			let error: BulkSimResult | undefined;
+			if (pm.finalBulkResult.error) {
+				if (pm.finalBulkResult.error.type == ErrorOutcomeType.ErrorOutcomeError) {
+					console.error(`Batch piece ${idx} had an error!`);
+				}
+				error = pm.finalBulkResult;
+				signals.abort.trigger();
+			}
+
+			if (error || running == 0) {
+				running = 0;
+				resolve(error);
+			}
+		};
+
+		for (let i = 0; i < pieces.length; i++) {
+			workerPool.bulkSimAsync(pieces[i], pm => progressHandler(i, pm), signals);
+		}
+	});
+
+	if (errorResult?.error) {
+		return makeAndSendBulkSimError(errorResult.error, onProgress);
+	}
+
+	if (signals.abort.isTriggered()) {
+		return makeAndSendBulkSimError(ErrorOutcome.create({ type: ErrorOutcomeType.ErrorOutcomeAborted }), onProgress);
+	}
+
+	const combined = await workerPool.bulkSimResultCombination(
+		BulkSimResultCombinationRequest.create({
+			results: progress.finalResults,
+			topN: request.topN,
+		}),
+	);
+
+	onProgress(ProgressMetrics.create({ finalBulkResult: combined }));
+	return combined;
 };

@@ -860,6 +860,7 @@
 			"import_bags": "Import From Bags",
 			"import_favorites": "Import Favorites",
 			"clear_items": "Clear Items",
+			"export_json": "Export batch JSON",
 			"simulate_batch": "Simulate Batch"
 		},
 		"search": {
@@ -912,6 +913,7 @@
 		"progress": {
 			"total_combinations": "{{count}} total combinations.",
 			"reforging_rounds": "Optimizing gems",
+			"building_combinations": "Building gear combinations",
 			"checking_constraints": "Checking stat constraints",
 			"baseline_round": "Running baseline round",
 			"refining_rounds": "Running refining rounds",
@@ -959,6 +961,9 @@
 		},
 		"gem_selector": {
 			"title": "Choose fallback Gem"
+		},
+		"export": {
+			"title": "Batch sim request"
 		},
 		"import_modal": {
 			"title": "Bag Item Import",

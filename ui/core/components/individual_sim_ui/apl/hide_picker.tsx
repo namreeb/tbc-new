@@ -1,7 +1,7 @@
-import { Player } from "../../../player";
-import { TypedEvent } from "../../../typed_event";
-import { Input, InputConfig } from "../../input";
-import { ListPicker } from "../../pickers/list_picker";
+import { Player } from '../../../player';
+import { TypedEvent } from '../../../typed_event';
+import { Input, InputConfig } from '../../input';
+import { ListPicker } from '../../pickers/list_picker';
 
 export class APLHidePicker extends Input<Player<any>, boolean> {
 	private readonly inputElem: HTMLElement;

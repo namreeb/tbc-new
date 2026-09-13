@@ -103,6 +103,9 @@ var handlers = map[string]apiHandler{
 	"/statWeightCompute": {msg: func() googleProto.Message { return &proto.StatWeightsCalcRequest{} }, handle: func(msg googleProto.Message) googleProto.Message {
 		return core.StatWeightCompute(msg.(*proto.StatWeightsCalcRequest))
 	}},
+	"/bulkSimCount": {msg: func() googleProto.Message { return &proto.BulkSimRequest{} }, handle: func(msg googleProto.Message) googleProto.Message {
+		return core.BulkSimCount(msg.(*proto.BulkSimRequest))
+	}},
 	"/computeStats": {msg: func() googleProto.Message { return &proto.ComputeStatsRequest{} }, handle: func(msg googleProto.Message) googleProto.Message {
 		return core.ComputeStats(msg.(*proto.ComputeStatsRequest))
 	}},
@@ -116,6 +119,9 @@ var handlers = map[string]apiHandler{
 var asyncAPIHandlers = map[string]asyncAPIHandler{
 	"/raidSimAsync": {msg: func() googleProto.Message { return &proto.RaidSimRequest{} }, handle: func(msg googleProto.Message, reporter chan *proto.ProgressMetrics, requestId string) {
 		core.RunRaidSimConcurrentAsync(msg.(*proto.RaidSimRequest), reporter, requestId)
+	}},
+	"/bulkSimAsync": {msg: func() googleProto.Message { return &proto.BulkSimRequest{} }, handle: func(msg googleProto.Message, reporter chan *proto.ProgressMetrics, requestId string) {
+		core.BulkSimAsync(msg.(*proto.BulkSimRequest), reporter, requestId)
 	}},
 	"/statWeightsAsync": {msg: func() googleProto.Message { return &proto.StatWeightsRequest{} }, handle: func(msg googleProto.Message, reporter chan *proto.ProgressMetrics, requestId string) {
 		core.StatWeightsAsync(msg.(*proto.StatWeightsRequest), reporter, requestId)
@@ -200,7 +206,7 @@ func (s *server) handleAsyncAPI(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				simProgress.latestProgress.Store(progMetric)
-				if progMetric.FinalRaidResult != nil || progMetric.FinalWeightResult != nil {
+				if progMetric.FinalRaidResult != nil || progMetric.FinalWeightResult != nil || progMetric.FinalBulkResult != nil {
 					return
 				}
 			}
@@ -258,7 +264,7 @@ func (s *server) setupAsyncServer() {
 		}
 
 		// If this was the last result, delete the cache for this simulation.
-		if latest.FinalRaidResult != nil || latest.FinalWeightResult != nil {
+		if latest.FinalRaidResult != nil || latest.FinalWeightResult != nil || latest.FinalBulkResult != nil {
 			s.progMut.Lock()
 			delete(s.asyncProgresses, msg.ProgressId)
 			s.progMut.Unlock()

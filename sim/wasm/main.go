@@ -37,6 +37,10 @@ func main() {
 	js.Global().Set("statWeightRequests", js.FuncOf(statWeightRequests))
 	js.Global().Set("statWeightCompute", js.FuncOf(statWeightCompute))
 	js.Global().Set("abortById", js.FuncOf(abortById))
+	js.Global().Set("bulkSimAsync", js.FuncOf(bulkSimAsync))
+	js.Global().Set("bulkSimCount", js.FuncOf(bulkSimCount))
+	js.Global().Set("bulkSimRequestSplit", js.FuncOf(bulkSimRequestSplit))
+	js.Global().Set("bulkSimResultCombination", js.FuncOf(bulkSimResultCombination))
 	js.Global().Call("wasmready")
 	<-c
 }
@@ -315,6 +319,64 @@ func raidSimResultCombination(this js.Value, args []js.Value) interface{} {
 	return outArray
 }
 
+// Batch sim, one piece of a split batch per worker (see BulkSimRequest.combo_start).
+func bulkSimAsync(this js.Value, args []js.Value) interface{} {
+	request := &proto.BulkSimRequest{}
+	if err := googleProto.Unmarshal(getArgsBinary(args[0]), request); err != nil {
+		log.Printf("Failed to parse BulkSimRequest: %s", err)
+		return nil
+	}
+
+	requestId := args[2].String()
+	if strings.HasPrefix(requestId, "<T") {
+		requestId = "" // Make it return the error for an empty id
+	}
+
+	reporter := make(chan *proto.ProgressMetrics, 100)
+	go core.BulkSimAsync(request, reporter, requestId)
+	go processAsyncProgress(args[1], reporter)
+	return js.Undefined()
+}
+
+func bulkSimCount(this js.Value, args []js.Value) interface{} {
+	request := &proto.BulkSimRequest{}
+	if err := googleProto.Unmarshal(getArgsBinary(args[0]), request); err != nil {
+		log.Printf("Failed to parse BulkSimRequest: %s", err)
+		return nil
+	}
+	return marshalToJS(core.BulkSimCount(request))
+}
+
+func bulkSimRequestSplit(this js.Value, args []js.Value) interface{} {
+	splitRequest := &proto.BulkSimRequestSplitRequest{}
+	if err := googleProto.Unmarshal(getArgsBinary(args[0]), splitRequest); err != nil {
+		log.Printf("Failed to parse BulkSimRequestSplitRequest: %s", err)
+		return nil
+	}
+	return marshalToJS(core.SplitBulkSimRequest(splitRequest.Request, splitRequest.SplitCount))
+}
+
+func bulkSimResultCombination(this js.Value, args []js.Value) interface{} {
+	combRequest := &proto.BulkSimResultCombinationRequest{}
+	if err := googleProto.Unmarshal(getArgsBinary(args[0]), combRequest); err != nil {
+		log.Printf("Failed to parse BulkSimResultCombinationRequest: %s", err)
+		return nil
+	}
+	return marshalToJS(core.CombineBulkSimResults(combRequest.Results, combRequest.TopN))
+}
+
+// Marshals a response message into a Uint8Array for the worker.
+func marshalToJS(msg googleProto.Message) interface{} {
+	outbytes, err := googleProto.Marshal(msg)
+	if err != nil {
+		log.Printf("[ERROR] Failed to marshal result: %s", err.Error())
+		return nil
+	}
+	outArray := js.Global().Get("Uint8Array").New(len(outbytes))
+	js.CopyBytesToJS(outArray, outbytes)
+	return outArray
+}
+
 func abortById(this js.Value, args []js.Value) interface{} {
 	abortRequest := &proto.AbortRequest{}
 	if err := googleProto.Unmarshal(getArgsBinary(args[0]), abortRequest); err != nil {
@@ -367,7 +429,7 @@ func processAsyncProgress(progFunc js.Value, reporter chan *proto.ProgressMetric
 			js.CopyBytesToJS(outArray, outbytes)
 			progFunc.Invoke(outArray)
 
-			if progMetric.FinalWeightResult != nil || progMetric.FinalRaidResult != nil {
+			if progMetric.FinalWeightResult != nil || progMetric.FinalRaidResult != nil || progMetric.FinalBulkResult != nil {
 				return
 			}
 		}

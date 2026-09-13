@@ -18,6 +18,10 @@ declare global {
 	const raidSimResultCombination: SimRequestSync;
 	const raidSimRequestSplit: SimRequestSync;
 	const abortById: SimRequestSync;
+	const bulkSimAsync: SimRequestAsync;
+	const bulkSimCount: SimRequestSync;
+	const bulkSimRequestSplit: SimRequestSync;
+	const bulkSimResultCombination: SimRequestSync;
 }
 
 // Wasm binary calls this function when its done loading.
@@ -36,6 +40,10 @@ globalThis.wasmready = function () {
 		raidSimRequestSplit: raidSimRequestSplit,
 		raidSimResultCombination: raidSimResultCombination,
 		abortById: abortById,
+		bulkSimAsync: bulkSimAsync,
+		bulkSimCount: bulkSimCount,
+		bulkSimRequestSplit: bulkSimRequestSplit,
+		bulkSimResultCombination: bulkSimResultCombination,
 	}).ready(true);
 };
 

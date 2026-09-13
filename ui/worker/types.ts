@@ -19,6 +19,10 @@ export enum SimRequest {
 	raidSimRequestSplit = 'raidSimRequestSplit',
 	raidSimResultCombination = 'raidSimResultCombination',
 	abortById = 'abortById',
+	bulkSimAsync = 'bulkSimAsync',
+	bulkSimCount = 'bulkSimCount',
+	bulkSimRequestSplit = 'bulkSimRequestSplit',
+	bulkSimResultCombination = 'bulkSimResultCombination',
 }
 
 /**

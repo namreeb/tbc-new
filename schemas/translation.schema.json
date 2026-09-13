@@ -3037,12 +3037,15 @@
 						"clear_items": {
 							"type": "string"
 						},
+						"export_json": {
+							"type": "string"
+						},
 						"simulate_batch": {
 							"type": "string"
 						}
 					},
 					"additionalProperties": false,
-					"required": ["import_bags", "import_favorites", "clear_items", "simulate_batch"]
+					"required": ["import_bags", "import_favorites", "clear_items", "simulate_batch", "export_json"]
 				},
 				"search": {
 					"type": "object",
@@ -3224,6 +3227,9 @@
 						"reforging_rounds": {
 							"type": "string"
 						},
+						"building_combinations": {
+							"type": "string"
+						},
 						"checking_constraints": {
 							"type": "string"
 						},
@@ -3241,7 +3247,7 @@
 						}
 					},
 					"additionalProperties": false,
-					"required": ["total_combinations", "reforging_rounds", "checking_constraints", "baseline_round", "refining_rounds", "iterations_complete", "seconds_remaining"]
+					"required": ["total_combinations", "reforging_rounds", "checking_constraints", "building_combinations", "baseline_round", "refining_rounds", "iterations_complete", "seconds_remaining"]
 				},
 				"notifications": {
 					"type": "object",
@@ -3346,6 +3352,14 @@
 					"additionalProperties": false,
 					"required": ["title"]
 				},
+				"export": {
+					"type": "object",
+					"properties": {
+						"title": { "type": "string" }
+					},
+					"additionalProperties": false,
+					"required": ["title"]
+				},
 				"import_modal": {
 					"type": "object",
 					"properties": {
@@ -3379,7 +3393,7 @@
 				"results",
 				"gem_selector",
 				"import_modal"
-			]
+			, "export"]
 		},
 		"rotation_tab": {
 			"type": "object",

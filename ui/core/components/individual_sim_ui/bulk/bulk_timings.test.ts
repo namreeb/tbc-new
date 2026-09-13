@@ -34,56 +34,6 @@ describe('BulkSimTimings', () => {
 		assert.deepEqual(timings.report().phases.gems, { ms: 0, count: 0 });
 	});
 
-	it('derives polling sleep from progress payloads before the final one', async () => {
-		const clock = fakeClock();
-		const timings = new BulkSimTimings(500, clock.now);
-		// Three payloads: two intermediate polls, each followed by a sleep, then the final.
-		await timings.timeSim(async onPayload => {
-			onPayload();
-			clock.tick(510);
-			onPayload();
-			clock.tick(510);
-			onPayload();
-			return 'done';
-		});
-		// A sim that finished by its first poll slept for nothing.
-		await timings.timeSim(async onPayload => {
-			clock.tick(5);
-			onPayload();
-			return 'done';
-		});
-		const report = timings.report();
-		assert.equal(report.sims.count, 2);
-		assert.equal(report.sims.wallMs, 1025);
-		assert.equal(report.sims.pollsBeforeFinal, 2);
-		assert.equal(report.sims.pollSleepMs, 1000);
-	});
-
-	it('still records a sim that throws, and rethrows', async () => {
-		const clock = fakeClock();
-		const timings = new BulkSimTimings(500, clock.now);
-		await assert.rejects(
-			timings.timeSim(async () => {
-				clock.tick(10);
-				throw new Error('Bulk Sim Aborted');
-			}),
-			/Bulk Sim Aborted/,
-		);
-		assert.equal(timings.report().sims.count, 1);
-		assert.equal(timings.report().sims.wallMs, 10);
-	});
-
-	it('totals stat computations', async () => {
-		const clock = fakeClock();
-		const timings = new BulkSimTimings(500, clock.now);
-		for (const ms of [3, 4, 5]) {
-			await timings.timeStatComputation(async () => {
-				clock.tick(ms);
-			});
-		}
-		assert.deepEqual(timings.report().statComputations, { count: 3, wallMs: 12 });
-	});
-
 	it('returns a snapshot that does not alias internal state', () => {
 		const timings = new BulkSimTimings(500, fakeClock().now);
 		const report = timings.report();

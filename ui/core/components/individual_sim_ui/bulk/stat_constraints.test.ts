@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 
 import { BulkSettings, BulkStatConstraint, BulkStatConstraintOp } from '../../../proto/api';
 import { PseudoStat, Stat, UnitStats } from '../../../proto/common';
-import { constraintStatValue, filterByStatConstraints, finalStatsPassConstraints, newStatConstraint, statConstraintPasses } from './stat_constraints';
+import { constraintStatValue, finalStatsPassConstraints, newStatConstraint, statConstraintPasses } from './stat_constraints';
 
 const Op = BulkStatConstraintOp;
 
@@ -95,77 +95,5 @@ describe('finalStatsPassConstraints', () => {
 
 	it('creates a new constraint that any gear set passes', () => {
 		assert.equal(finalStatsPassConstraints([newStatConstraint()], UnitStats.create()), true);
-	});
-});
-
-describe('filterByStatConstraints', () => {
-	// Candidates are identified by their fire resistance for readability.
-	const candidates = [{ fireRes: 33 }, { fireRes: 93 }, { fireRes: 83 }, { fireRes: 200 }];
-	const getFinalStats = async (candidate: { fireRes: number }) => finalStats({ [Stat.StatFireResistance]: candidate.fireRes });
-
-	it('keeps passing candidates in order and counts the skipped ones', async () => {
-		const constraints = [statConstraint(Stat.StatFireResistance, Op.BulkStatConstraintOpGreaterThan, 85)];
-		const result = await filterByStatConstraints(candidates, constraints, getFinalStats, { concurrency: 2 });
-		assert.deepEqual(result.passing, [{ fireRes: 93 }, { fireRes: 200 }]);
-		assert.equal(result.skipped, 2);
-	});
-
-	it('skips everything when nothing qualifies, without failing', async () => {
-		const constraints = [statConstraint(Stat.StatFireResistance, Op.BulkStatConstraintOpGreaterThan, 1000)];
-		const result = await filterByStatConstraints(candidates, constraints, getFinalStats, { concurrency: 4 });
-		assert.deepEqual(result.passing, []);
-		assert.equal(result.skipped, candidates.length);
-	});
-
-	it('fetches nothing when there are no constraints', async () => {
-		let fetches = 0;
-		const counting = async (candidate: { fireRes: number }) => {
-			fetches += 1;
-			return getFinalStats(candidate);
-		};
-		const result = await filterByStatConstraints(candidates, [], counting, { concurrency: 4 });
-		assert.deepEqual(result.passing, candidates);
-		assert.equal(result.skipped, 0);
-		assert.equal(fetches, 0);
-	});
-
-	it('reports progress from 0 up to the candidate count', async () => {
-		const progress: Array<[number, number]> = [];
-		const constraints = [statConstraint(Stat.StatFireResistance, Op.BulkStatConstraintOpGreaterThan, 0)];
-		await filterByStatConstraints(candidates, constraints, getFinalStats, {
-			concurrency: 1,
-			onProgress: (checked, total) => progress.push([checked, total]),
-		});
-		assert.deepEqual(progress, [
-			[0, 4],
-			[1, 4],
-			[2, 4],
-			[3, 4],
-			[4, 4],
-		]);
-	});
-
-	it('never has more fetches in flight than the concurrency', async () => {
-		let inFlight = 0;
-		let maxInFlight = 0;
-		const gated = async (candidate: { fireRes: number }) => {
-			inFlight += 1;
-			maxInFlight = Math.max(maxInFlight, inFlight);
-			await new Promise(resolve => setTimeout(resolve, 5));
-			inFlight -= 1;
-			return getFinalStats(candidate);
-		};
-		const constraints = [statConstraint(Stat.StatFireResistance, Op.BulkStatConstraintOpGreaterThan, 0)];
-		await filterByStatConstraints(candidates, constraints, gated, { concurrency: 2 });
-		assert.equal(maxInFlight, 2);
-	});
-
-	it('rethrows the first stats fetch failure', async () => {
-		const failing = async (candidate: { fireRes: number }) => {
-			if (candidate.fireRes === 83) throw new Error('Bulk Sim Aborted');
-			return getFinalStats(candidate);
-		};
-		const constraints = [statConstraint(Stat.StatFireResistance, Op.BulkStatConstraintOpGreaterThan, 0)];
-		await assert.rejects(filterByStatConstraints(candidates, constraints, failing, { concurrency: 4 }), /Bulk Sim Aborted/);
 	});
 });

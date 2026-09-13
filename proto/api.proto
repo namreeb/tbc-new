@@ -592,6 +592,11 @@ message ProgressMetrics {
 	// Final Results
 	RaidSimResult final_raid_result = 6; // only set when completed
 	StatWeightsResult final_weight_result = 7;
+
+	// Batch sims: the phase in progress, with completed_sims / total_sims
+	// counting items within it. final_bulk_result is set only when completed.
+	BulkSimPhase bulk_phase = 10;
+	BulkSimResult final_bulk_result = 11;
 }
 
 message BulkSettings {
@@ -630,4 +635,195 @@ message BulkStatConstraint {
 	}
 	BulkStatConstraintOp op = 2;
 	double value = 3;
+}
+
+// ---------------------------------------------------------------------------
+// Batch (bulk) sim.
+//
+// The client assembles the batch's inputs once (character, item pool, gem
+// choice inputs, constraints) and the sim does everything else: enumerate the
+// gear combinations, choose gems for each, drop the ones failing a stat
+// constraint, sim the rest, and return the top results. The same request runs
+// on the server, in the WASM build, and from the CLI (`wowsimcli bulk`), and
+// is what the batch settings JSON export contains.
+// ---------------------------------------------------------------------------
+
+message BulkSimRequest {
+	// The character to batch for, with its raid, encounter and sim options,
+	// exactly as a single sim would send them. Player 0 of party 0 is the
+	// subject; its equipment is the "current gear" the results are compared to.
+	// Its sim_options.iterations is ignored in favour of
+	// settings.iterations_per_combo.
+	RaidSimRequest base = 1;
+
+	// Frozen slots, weapon type filters, fallback gems, stat constraints and
+	// iterations per combination. settings.items is the UI's persisted pool;
+	// the sim reads the pool from `pool` below, which adds slot eligibility.
+	BulkSettings settings = 2;
+
+	BulkGemSettings gems = 3;
+
+	// The item pool with the slots each item may be worn in. Slot eligibility
+	// (class armor and weapon rules) is decided by the client, which owns that
+	// data, so the sim never has to.
+	repeated BulkPoolItem pool = 6;
+
+	// Whether the character's spec can dual wield: one-hand weapons in the
+	// pool then pair up across both hands. Spec metadata owned by the client.
+	bool can_dual_wield = 7;
+
+	// Item, gem, enchant and random suffix data for everything the batch may
+	// reference (the pool plus the eligible gems), so the request stands alone
+	// and can be replayed by the CLI without a database.
+	SimDatabase database = 4;
+
+	// Number of top results to return. 0 means the default (5).
+	int32 top_n = 5;
+
+	// Optional half-open range [combo_start, combo_end) of combination indices
+	// to run, so one batch can be split across several workers (the browser's
+	// wasm threads). 0/0 means every combination. Sim seeds are keyed on the
+	// global index, so a split run gives the same numbers as an unsplit one.
+	// Only the piece starting at 0 sims the base gear. Pieces are merged with
+	// BulkSimResultCombinationRequest.
+	int32 combo_start = 8;
+	int32 combo_end = 9;
+}
+
+// Splits a batch into split_count pieces by combination range, for the wasm
+// worker pool. The whole request is validated first, so a bad batch fails here
+// rather than in every worker.
+message BulkSimRequestSplitRequest {
+	int32 split_count = 1;
+	BulkSimRequest request = 2;
+}
+
+message BulkSimRequestSplitResult {
+	// The number of pieces made, at most one per combination.
+	int32 splits_done = 1;
+	repeated BulkSimRequest requests = 2;
+	string error_result = 3;
+}
+
+// Merges the results of the pieces of a split batch back into one result.
+message BulkSimResultCombinationRequest {
+	repeated BulkSimResult results = 1;
+	// Number of top results to keep. 0 means the default (5).
+	int32 top_n = 2;
+}
+
+// Inputs for choosing gems per candidate gear set. Mirrors what the UI's
+// Suggest Gems optimizer uses, so batch gemming matches it.
+message BulkGemSettings {
+	// When false, candidates are simmed with the fallback gems as placed.
+	bool optimize = 1;
+
+	// Pre-cap stat weights (EPs) of the character.
+	UnitStats stat_weights = 2;
+
+	// Hard caps as absolute stat values; 0 means uncapped. Caps are lower
+	// bounds unless the matching entry in undershoot_caps is set, in which
+	// case the cap is an upper bound.
+	UnitStats stat_caps = 3;
+	UnitStats undershoot_caps = 4;
+
+	// Soft cap / threshold breakpoints with post-cap weights.
+	repeated BulkStatCap soft_caps = 5;
+
+	// Gems the optimizer may choose from, already filtered by the UI for
+	// phase, quality, profession and stat relevance. Gem stats and colors come
+	// from BulkSimRequest.database.
+	repeated BulkGemOption eligible_gems = 6;
+
+	// Slots whose gems are left exactly as placed.
+	repeated ItemSlot frozen_slots = 7;
+
+	// Activation conditions of the meta gems the batch may socket, so the sim
+	// can tell when a meta gem is inactive. Owned by the client's gem data.
+	repeated BulkMetaGemCondition meta_gem_conditions = 8;
+}
+
+message BulkPoolItem {
+	ItemSpec item = 1;
+	repeated ItemSlot slots = 2;
+}
+
+// A meta gem is active when the gear holds at least the given counts of each
+// color (green counts as blue and yellow, etc.) and, when compare colors are
+// set, strictly more of the greater color than the lesser.
+message BulkMetaGemCondition {
+	int32 gem_id = 1;
+	int32 min_red = 2;
+	int32 min_yellow = 3;
+	int32 min_blue = 4;
+	GemColor compare_color_greater = 5;
+	GemColor compare_color_lesser = 6;
+}
+
+enum BulkStatCapType {
+	BulkStatCapTypeSoftCap = 0;
+	BulkStatCapTypeThreshold = 1;
+}
+
+// A soft cap (weight changes past each breakpoint) or threshold (largest
+// reachable breakpoint is targeted) on one stat. Breakpoints are absolute
+// stat values in ascending order.
+message BulkStatCap {
+	oneof unit_stat {
+		Stat stat = 1;
+		PseudoStat pseudo_stat = 2;
+	}
+	repeated double breakpoints = 3;
+	BulkStatCapType cap_type = 4;
+	// post_cap_eps[i] is the weight between breakpoints[i] and [i+1]. Soft
+	// caps only; thresholds use a single residual value.
+	repeated double post_cap_eps = 5;
+}
+
+message BulkGemOption {
+	int32 gem_id = 1;
+	// Jewelcrafting-only gem (uniqueness comes from the gem data).
+	bool jewelcrafting = 2;
+}
+
+enum BulkSimPhase {
+	BulkSimPhaseUnknown = 0;
+	BulkSimPhaseBuild = 1;
+	BulkSimPhaseGems = 2;
+	BulkSimPhaseConstraints = 3;
+	BulkSimPhaseSims = 4;
+}
+
+// One gear combination and how it simmed.
+message BulkSimCombo {
+	EquipmentSpec equipment = 1;
+	DistributionMetrics dps = 2;
+}
+
+// Wall-clock time spent in each phase, in milliseconds, for comparing
+// implementations.
+message BulkSimTimings {
+	double build_ms = 1;
+	double gems_ms = 2;
+	double constraints_ms = 3;
+	double sims_ms = 4;
+	double total_ms = 5;
+}
+
+message BulkSimResult {
+	// Top results, best first.
+	repeated BulkSimCombo results = 1;
+	// The character's current gear, simmed for reference.
+	BulkSimCombo base = 2;
+	int32 total_combinations = 3;
+	int32 skipped_by_constraints = 4;
+	BulkSimTimings timings = 5;
+	ErrorOutcome error = 6;
+}
+
+// Synchronous: how many gear combinations a request would enumerate, for the
+// UI's combination count. Validates the settings without running anything.
+message BulkSimCountResult {
+	int32 combinations = 1;
+	string error_result = 2;
 }

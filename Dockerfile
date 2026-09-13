@@ -1,13 +1,15 @@
 # syntax=docker/dockerfile:1
 
 ##############################################################################
-# build — heavy toolchain (Go + Node + protoc). Compiles the WASM, builds the
-# Vite client, embeds it into the Go binary, and produces a single fully-static
-# `wowsimtbc` executable. Used only to feed the `prod` stage below.
+# Stages: toolchain (Go + Node + protoc, no source) -> build (source + make)
+# -> prod (static binary only).
 #
 #   docker build --target prod -t wowsimtbc .
 ##############################################################################
-FROM golang:1.25 AS build
+# toolchain — everything needed to build, with no source copied in. Also used
+# directly for development: tools/go-dev.sh mounts the working tree into this
+# image so Go can be compiled and tested without rebuilding the image.
+FROM golang:1.25 AS toolchain
 
 # Several makefile recipes rely on bash features, so make `sh` point at bash.
 RUN rm /bin/sh && ln -s /bin/bash /bin/sh
@@ -41,6 +43,13 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY package.json package-lock.json ./
 RUN npm ci
+
+##############################################################################
+# build — the toolchain plus the source. Compiles the WASM, builds the Vite
+# client, embeds it into the Go binary, and produces a single fully-static
+# `wowsimtbc` executable. Used only to feed the `prod` stage below.
+##############################################################################
+FROM toolchain AS build
 
 # Build everything: proto -> wasm + client bundle -> embed -> static server.
 COPY . .

@@ -5,6 +5,9 @@ import { CURRENT_PHASE, LOCAL_STORAGE_PREFIX } from './constants/other';
 import { Encounter } from './encounter';
 import { Player, UnitMetadata } from './player';
 import {
+	BulkSimCountResult,
+	BulkSimRequest,
+	BulkSimResult,
 	ComputeStatsRequest,
 	ErrorOutcome,
 	ErrorOutcomeType,
@@ -36,7 +39,7 @@ import { Gear } from './proto_utils/gear';
 import { SimResult } from './proto_utils/sim_result.js';
 import { extendPlayerProtoWithMissingEffects } from './proto_utils/utils';
 import { Raid } from './raid.js';
-import { runConcurrentSim, runConcurrentStatWeights } from './sim_concurrent';
+import { runConcurrentBulkSim, runConcurrentSim, runConcurrentStatWeights } from './sim_concurrent';
 import { RequestTypes, SimSignalManager } from './sim_signal_manager';
 import { EventID, TypedEvent } from './typed_event.js';
 import { getEnumValues, noop } from './utils.js';
@@ -463,6 +466,28 @@ export class Sim {
 		}
 
 		return result.raidStats!.parties[0].players[0];
+	}
+
+	// Runs a batch sim in the sim: one request to a native server, or split
+	// across the wasm workers. The result's error field is set when the run
+	// failed or was aborted.
+	async runBulkSim(request: BulkSimRequest, onProgress: WorkerProgressCallback): Promise<BulkSimResult> {
+		await this.waitForInit();
+		const signals = this.signalManager.registerRunning(RequestTypes.BulkSim);
+		try {
+			if (await this.shouldUseWasmConcurrency()) {
+				return await runConcurrentBulkSim(request, this.workerPool, onProgress, signals);
+			}
+			return await this.workerPool.bulkSimAsync(request, onProgress, signals);
+		} finally {
+			this.signalManager.unregisterRunning(signals);
+		}
+	}
+
+	// Validates a batch request and counts its gear combinations, in the sim.
+	async bulkSimCount(request: BulkSimRequest): Promise<BulkSimCountResult> {
+		await this.waitForInit();
+		return this.workerPool.bulkSimCount(request);
 	}
 
 	async statWeights(

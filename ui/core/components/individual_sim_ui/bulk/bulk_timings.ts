@@ -79,34 +79,6 @@ export class BulkSimTimings {
 		delete this.phaseStartedAt[phase];
 	}
 
-	// Times one sim request. The callback receives a function to call once per
-	// progress payload, which is how polling sleep is derived.
-	async timeSim<T>(run: (onProgressPayload: () => void) => Promise<T>): Promise<T> {
-		const startedAt = this.now();
-		let payloads = 0;
-		try {
-			return await run(() => {
-				payloads += 1;
-			});
-		} finally {
-			const pollsBeforeFinal = Math.max(0, payloads - 1);
-			this.sims.count += 1;
-			this.sims.wallMs += this.now() - startedAt;
-			this.sims.pollsBeforeFinal += pollsBeforeFinal;
-			this.sims.pollSleepMs += pollsBeforeFinal * this.pollIntervalMs;
-		}
-	}
-
-	async timeStatComputation<T>(run: () => Promise<T>): Promise<T> {
-		const startedAt = this.now();
-		try {
-			return await run();
-		} finally {
-			this.statComputations.count += 1;
-			this.statComputations.wallMs += this.now() - startedAt;
-		}
-	}
-
 	report(): BulkTimingReport {
 		const end = this.finishedAt ?? this.now();
 		return {

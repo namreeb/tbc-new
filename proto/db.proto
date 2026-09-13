@@ -20,9 +20,14 @@ message SimDatabase {
 message SimEnchant {
 	int32 effect_id = 1;
 	string name = 2; // Only needed for unit tests.
-	ItemType type = 3; // Only needed for unit tests.
+	ItemType type = 3; // Which type of item this enchant can be applied to.
 	repeated double stats = 4;
 	repeated ItemEffect enchant_effects = 5;
+	// Applicability rules, used by the batch sim when carrying an enchant over
+	// to a swapped-in item. JSON names match UIEnchant so the UI's conversion
+	// carries them over.
+	EnchantType enchant_type = 6;
+	repeated ItemType extra_types = 7;
 }
 
 // Contains only the Item info needed by the sim.
@@ -46,6 +51,11 @@ message SimItem {
 
 	map<int32, ScalingItemProperties> scaling_options = 13; // keys are the all ItemLevelState variants that this item could potentially have
 	repeated ItemEffect item_effects = 14;
+
+	// Wearability rules, used by the batch sim when pairing rings, trinkets and
+	// weapons. JSON names match UIItem so the UI's conversion carries them over.
+	bool unique = 16;
+	int32 limit_category = 17;
 }
 
 message Consumable {
@@ -77,4 +87,6 @@ message SimGem {
 	GemColor color = 3;
 	repeated double stats = 4;
 	bool disabled_in_challenge_mode = 5;
+	// Unique-equipped: at most one may be socketed across the gear set.
+	bool unique = 6;
 }

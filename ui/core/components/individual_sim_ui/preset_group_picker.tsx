@@ -113,9 +113,7 @@ export class PresetGroupPicker extends Component {
 
 	private validateFilterState() {
 		if (!this.phases.includes(this.filterState.phase)) {
-			this.filterState.phase = this.phases.includes(CURRENT_PHASE)
-				? CURRENT_PHASE
-				: this.phases[0] ?? CURRENT_PHASE;
+			this.filterState.phase = this.phases.includes(CURRENT_PHASE) ? CURRENT_PHASE : (this.phases[0] ?? CURRENT_PHASE);
 		}
 	}
 
@@ -130,9 +128,7 @@ export class PresetGroupPicker extends Component {
 		this.phaseTabsContainer.classList.remove('hide');
 		for (const phase of this.phases) {
 			const tab = (
-				<button
-					className={`preset-group-phase-tab${phase === this.filterState.phase ? ' active' : ''}`}
-					onclick={() => this.setFilter(phase)}>
+				<button className={`preset-group-phase-tab${phase === this.filterState.phase ? ' active' : ''}`} onclick={() => this.setFilter(phase)}>
 					{i18n.t(`common.phase_names.${phase}`)}
 				</button>
 			);
@@ -187,9 +183,7 @@ export class PresetGroupPicker extends Component {
 				if (!elems || elems.length === 0) continue;
 
 				if (!hideGroupHeadings) {
-					sectionBody.appendChild(
-						<div className="preset-group-label">{groupName}</div>,
-					);
+					sectionBody.appendChild(<div className="preset-group-label">{groupName}</div>);
 				}
 				const chipRow = <div className="saved-data-presets" />;
 				elems.forEach(el => chipRow.appendChild(el));

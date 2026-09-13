@@ -217,6 +217,10 @@ type Item struct {
 	Gems         []Gem
 	Enchant      Enchant
 
+	// Wearability rules (batch sim pairing).
+	Unique        bool
+	LimitCategory int32
+
 	//Internal use
 	TempEnchant    int32
 	ScalingOptions map[int32]*proto.ScalingItemProperties
@@ -230,6 +234,8 @@ func ItemFromProto(pData *proto.SimItem) Item {
 		Name:             pData.Name,
 		Type:             pData.Type,
 		ArmorType:        pData.ArmorType,
+		Unique:           pData.Unique,
+		LimitCategory:    pData.LimitCategory,
 		WeaponType:       pData.WeaponType,
 		HandType:         pData.HandType,
 		RangedWeaponType: pData.RangedWeaponType,
@@ -276,8 +282,10 @@ type Enchant struct {
 	EffectID       int32 // Used by UI to apply effect to tooltip
 	Stats          stats.Stats
 	EnchantEffects []*proto.ItemEffect
-	Name           string         // Only needed for unit tests
-	Type           proto.ItemType // Only needed for unit tests
+	Name           string
+	Type           proto.ItemType    // Item type the enchant applies to.
+	EnchantType    proto.EnchantType // Further restriction (two-hand, shield, ...).
+	ExtraTypes     []proto.ItemType  // Extra item types for multi-slot enchants (kits).
 }
 
 func EnchantFromProto(pData *proto.SimEnchant) Enchant {
@@ -287,6 +295,8 @@ func EnchantFromProto(pData *proto.SimEnchant) Enchant {
 		EnchantEffects: pData.EnchantEffects,
 		Name:           pData.Name,
 		Type:           pData.Type,
+		EnchantType:    pData.EnchantType,
+		ExtraTypes:     pData.ExtraTypes,
 	}
 }
 
@@ -295,6 +305,8 @@ type Gem struct {
 	Name  string
 	Stats stats.Stats
 	Color proto.GemColor
+	// Unique-equipped: at most one may be socketed across the gear set.
+	Unique bool
 	// Set per equipped instance, not from the DB: a meta gem whose requirements are not met stays
 	// socketed (so the item's socket bonus still applies) but grants no stats and no effect.
 	Disabled bool
@@ -302,10 +314,11 @@ type Gem struct {
 
 func GemFromProto(pData *proto.SimGem) Gem {
 	return Gem{
-		ID:    pData.Id,
-		Name:  pData.Name,
-		Stats: stats.FromProtoArray(pData.Stats),
-		Color: pData.Color,
+		ID:     pData.Id,
+		Name:   pData.Name,
+		Stats:  stats.FromProtoArray(pData.Stats),
+		Color:  pData.Color,
+		Unique: pData.Unique,
 	}
 }
 

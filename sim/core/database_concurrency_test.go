@@ -31,7 +31,7 @@ func TestDatabaseConcurrentReadWrite(t *testing.T) {
 				id := baseID + int32(w*perWriter+i)
 				addToDatabase(&proto.SimDatabase{
 					Items:       []*proto.SimItem{{Id: id, Name: fmt.Sprintf("Race Item %d", id), ScalingOptions: map[int32]*proto.ScalingItemProperties{0: {}}}},
-					Gems:        []*proto.SimGem{{Id: id, Name: "Race Gem"}},
+					Gems:        []*proto.SimGem{{Id: id, Name: "Race Gem", Color: proto.GemColor_GemColorRed}},
 					Enchants:    []*proto.SimEnchant{{EffectId: id, Name: "Race Enchant"}},
 					Consumables: []*proto.Consumable{{Id: id, Name: "Race Consumable"}},
 				})
