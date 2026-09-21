@@ -42,6 +42,18 @@ describe('UnitStat', () => {
 		expect(Mechanics.PHYSICAL_HIT_RATING_PER_HIT_PERCENT).not.toBe(Mechanics.SPELL_HIT_RATING_PER_HIT_PERCENT);
 	});
 
+	// The inverse of the parentStat case below: convertRatingToPercent has no branch for
+	// ReducedCritTakenPercent either, so it returns null. convertEpToRatingScale declares
+	// `number` and asserted that null away with `!`, handing callers a null that only blew up
+	// once something did arithmetic on it - the Prot Paladin soft-cap tooltip called .toFixed()
+	// on it and took the sidebar down on hover.
+	it('falls back to the raw EP value when a stat has no percent conversion', () => {
+		const unitStat = UnitStat.fromPseudoStat(PseudoStat.PseudoStatReducedCritTakenPercent);
+		expect(unitStat.convertRatingToPercent(1)).toBeNull();
+		expect(unitStat.convertEpToRatingScale(12.5)).toBe(12.5);
+		expect(() => unitStat.convertEpToRatingScale(0).toFixed(2)).not.toThrow();
+	});
+
 	// TBC-only second parameter: ReducedCritTakenPercent has two possible rating sources.
 	it('needs a parentStat to turn ReducedCritTakenPercent back into a rating', () => {
 		const unitStat = UnitStat.fromPseudoStat(PseudoStat.PseudoStatReducedCritTakenPercent);
