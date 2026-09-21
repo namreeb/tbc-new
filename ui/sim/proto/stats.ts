@@ -233,7 +233,7 @@ export class UnitStat {
 
 	convertEpToRatingScale(epValue: number): number {
 		if (this.isPseudoStat() && PseudoStat[this.pseudoStat!].includes('Percent')) {
-			return this.convertRatingToPercent(epValue)!;
+			return this.convertRatingToPercent(epValue) ?? epValue;
 		} else {
 			return epValue;
 		}
