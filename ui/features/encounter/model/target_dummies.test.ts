@@ -1,4 +1,3 @@
-import { Spec } from '@generated/proto/common';
 import type { Player } from '@sim/player/player';
 import type { Sim } from '@sim/sim';
 import { createSimStore, patchKeyed, seedKeyed } from '@sim/state/sim_store';
@@ -25,7 +24,6 @@ const makePlayer = (overrides: Partial<Record<string, unknown>> = {}) =>
 	({
 		storeKey: STORE_KEY,
 		sim,
-		getSpec: () => Spec.SpecDpsWarrior,
 		canEnableTargetDummies: () => true,
 		shouldEnableTargetDummies: () => false,
 		...overrides,
