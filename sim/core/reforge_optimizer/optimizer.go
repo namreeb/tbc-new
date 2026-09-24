@@ -58,6 +58,15 @@ func OptimizeAsync(request *proto.ReforgeOptimizeRequest, signals simsignals.Sig
 			}
 			return optimizeAborted()
 		}
+		if errors.Is(err, errStatConstraintsInfeasible) {
+			if debug {
+				log.Printf("[reforgeOptimize:%d] stat constraints infeasible after %s", requestID, time.Since(solveStartedAt))
+			}
+			return &proto.ReforgeOptimizeResult{
+				InfeasibleStatConstraints: true,
+				Error:                     &proto.ErrorOutcome{Message: err.Error()},
+			}
+		}
 		gear := request.GetRaid().GetParties()[0].GetPlayers()[0].GetEquipment()
 		gearJSON, _ := protojson.Marshal(gear)
 		log.Printf("[reforgeOptimize:%d] HiGHS failed after %s: %s gear=%s", requestID, time.Since(solveStartedAt), err.Error(), gearJSON)
@@ -199,6 +208,13 @@ func (o *reforgeOptimizer) optimizeReforges() (*proto.EquipmentSpec, float64, er
 	variables := o.buildYalpsVariables(equipment, weights, reforgeCaps, reforgeSoftCaps)
 	constraints := o.buildYalpsConstraints(equipment)
 	addStructuralConstraints(variables, constraints)
+	statConstraintRows, err := o.statConstraintRows(variables)
+	if err != nil {
+		return nil, 0, err
+	}
+	for key, row := range statConstraintRows {
+		constraints.set(key, row)
+	}
 
 	timeoutSeconds := optimizerTimeout.Seconds()
 	if o.request.GetMode() == proto.ReforgeOptimizeMode_ReforgeOptimizeModeBulk {
