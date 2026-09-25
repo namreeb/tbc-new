@@ -3,6 +3,7 @@
 package reforgeoptimizer
 
 import (
+	"math"
 	"testing"
 
 	"github.com/wowsims/tbc/sim"
@@ -10,6 +11,7 @@ import (
 	"github.com/wowsims/tbc/sim/core/proto"
 	"github.com/wowsims/tbc/sim/core/simsignals"
 	"github.com/wowsims/tbc/sim/core/stats"
+	googleProto "google.golang.org/protobuf/proto"
 )
 
 func statConstraint(stat proto.Stat, op proto.BulkStatConstraintOp, value float64) *proto.BulkStatConstraint {
@@ -72,11 +74,13 @@ func TestStatConstraintsInModel(t *testing.T) {
 		t.Fatalf("unreachable constraint should be reported infeasible, got %+v", result)
 	}
 
-	// A lower bound the free solve already clears: the same solution as unconstrained.
+	// A lower bound the free solve already clears costs nothing: the optimum scores the same. The
+	// gems may differ between equally scored solutions, because gems that move a constrained stat
+	// are kept in the pool, which can change the solver's tie-breaking.
 	request.StatConstraints = []*proto.BulkStatConstraint{statConstraint(targetStat, proto.BulkStatConstraintOp_BulkStatConstraintOpGreaterThan, base.Stats[target])}
 	loose, looseScore := optimizedFinalStats(t, request)
-	if loose.Stats[target] != unconstrained.Stats[target] || looseScore != unconstrainedScore {
-		t.Fatalf("a constraint the optimum satisfies must not change it: %.1f/%.3f vs %.1f/%.3f", loose.Stats[target], looseScore, unconstrained.Stats[target], unconstrainedScore)
+	if math.Abs(looseScore-unconstrainedScore) > 1e-9 || loose.Stats[target] <= base.Stats[target] {
+		t.Fatalf("a constraint the optimum satisfies must cost nothing: %.1f/%.3f vs %.1f/%.3f", loose.Stats[target], looseScore, unconstrained.Stats[target], unconstrainedScore)
 	}
 
 	// Frost resistance is carried by no gem here, so it is decided on the base stats.
@@ -88,5 +92,103 @@ func TestStatConstraintsInModel(t *testing.T) {
 	request.StatConstraints = []*proto.BulkStatConstraint{statConstraint(proto.Stat_StatFrostResistance, proto.BulkStatConstraintOp_BulkStatConstraintOpGreaterThan, frostRes)}
 	if result := Optimize(request); !result.GetInfeasibleStatConstraints() {
 		t.Fatalf("a base-failed constraint on an unmovable stat must be infeasible, got %+v", result)
+	}
+}
+
+func pseudoStatConstraint(pseudoStat proto.PseudoStat, op proto.BulkStatConstraintOp, value float64) *proto.BulkStatConstraint {
+	return &proto.BulkStatConstraint{UnitStat: &proto.BulkStatConstraint_PseudoStat{PseudoStat: pseudoStat}, Op: op, Value: value}
+}
+
+var tankPercentStats = []proto.PseudoStat{
+	proto.PseudoStat_PseudoStatReducedCritTakenPercent,
+	proto.PseudoStat_PseudoStatDodgePercent,
+	proto.PseudoStat_PseudoStatParryPercent,
+}
+
+// The model's stat accounting has to agree with the character sheet for crit reduction, dodge and
+// parry, the tank stats the sheet derives from ratings rather than from stat dependencies. Checked
+// against the sim itself by adding the ratings as bonus stats: exact for dodge, parry, agility and
+// resilience, and within one defense point for defense, which the sheet floors.
+func TestResolveStatDeltaTankStatsMatchSheet(t *testing.T) {
+	sim.RegisterAll()
+	request := loadPreset(t, "tank-caps.test.json") // Protection Warrior: can parry, agility gives dodge.
+	optimizer, err := newReforgeOptimizer(request, simsignals.CreateSignals())
+	if err != nil {
+		t.Fatalf("newReforgeOptimizer: %v", err)
+	}
+	sheet := func(bonus stats.Stats) core.UnitStats {
+		raid := googleProto.Clone(optimizer.baseRaidProto).(*proto.Raid)
+		raid.Parties[0].Players[0].BonusStats = &proto.UnitStats{Stats: bonus[:], PseudoStats: make([]float64, stats.PseudoStatsLen)}
+		result := computeReforgeStats(&proto.ComputeStatsRequest{Raid: raid})
+		if result.ErrorResult != "" {
+			t.Fatalf("ComputeStats: %s", result.ErrorResult)
+		}
+		return protoToCoreUnitStats(result.RaidStats.Parties[0].Players[0].FinalStats)
+	}
+	base := sheet(stats.Stats{})
+
+	for _, tc := range []struct {
+		name      string
+		ratings   map[stats.Stat]float64
+		tolerance float64
+	}{
+		{"dodge, parry, agility and resilience", map[stats.Stat]float64{stats.DodgeRating: 40, stats.ParryRating: 25, stats.Agility: 30, stats.ResilienceRating: 20}, 1e-9},
+		{"defense", map[stats.Stat]float64{stats.DefenseRating: 20}, core.MissDodgeParryBlockCritChancePerDefense + 1e-9},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var bonus stats.Stats
+			for stat, value := range tc.ratings {
+				bonus[stat] = value
+			}
+			withBonus := sheet(bonus)
+			modelled := resolveStatDelta(optimizer.statDeps, optimizer.baseStats, rawUnitStatsFromStats(bonus))
+			for _, pseudoStat := range tankPercentStats {
+				unitStat := stats.UnitStatFromPseudoStat(pseudoStat)
+				sheetDelta := getUnitStat(withBonus, unitStat) - getUnitStat(base, unitStat)
+				if sheetDelta == 0 {
+					t.Fatalf("%s: the ratings should move the sheet's value; the case is unsuitable", pseudoStat)
+				}
+				if got := getUnitStat(modelled, unitStat); math.Abs(got-sheetDelta) > tc.tolerance {
+					t.Fatalf("%s: model credits %.4f, the sheet moves %.4f", pseudoStat, got, sheetDelta)
+				}
+			}
+		})
+	}
+}
+
+// Constraints on crit reduction, dodge and parry are met by choosing gems. They used to be judged
+// on the gem-stripped base alone, which made every raised threshold infeasible.
+func TestStatConstraintsOnTankStats(t *testing.T) {
+	sim.RegisterAll()
+	unconstrained, _ := optimizedFinalStats(t, loadPreset(t, "tank-caps.test.json"))
+
+	for _, pseudoStat := range tankPercentStats {
+		unitStat := stats.UnitStatFromPseudoStat(pseudoStat)
+		t.Run(pseudoStat.String(), func(t *testing.T) {
+			// Above what the unconstrained gems reach, so meeting it takes different gems.
+			target := getUnitStat(unconstrained, unitStat) + 0.5
+			request := loadPreset(t, "tank-caps.test.json")
+			request.StatConstraints = []*proto.BulkStatConstraint{pseudoStatConstraint(pseudoStat, proto.BulkStatConstraintOp_BulkStatConstraintOpGreaterThanOrEqual, target)}
+			finalStats, _ := optimizedFinalStats(t, request)
+			if got := getUnitStat(finalStats, unitStat); got < target {
+				t.Fatalf("the gems reach %.3f, below the constraint's %.3f", got, target)
+			}
+
+			// Far beyond anything the sockets can add: still infeasible.
+			request.StatConstraints = []*proto.BulkStatConstraint{pseudoStatConstraint(pseudoStat, proto.BulkStatConstraintOp_BulkStatConstraintOpGreaterThanOrEqual, target+100)}
+			if result := Optimize(request); !result.GetInfeasibleStatConstraints() {
+				t.Fatalf("an unreachable threshold must be infeasible, got %+v", result.GetError())
+			}
+		})
+	}
+
+	// An upper bound: the gems stay under it.
+	dodge := stats.UnitStatFromPseudoStat(proto.PseudoStat_PseudoStatDodgePercent)
+	ceiling := getUnitStat(unconstrained, dodge) - 0.1
+	request := loadPreset(t, "tank-caps.test.json")
+	request.StatConstraints = []*proto.BulkStatConstraint{pseudoStatConstraint(proto.PseudoStat_PseudoStatDodgePercent, proto.BulkStatConstraintOp_BulkStatConstraintOpLessThanOrEqual, ceiling)}
+	finalStats, _ := optimizedFinalStats(t, request)
+	if got := getUnitStat(finalStats, dodge); got > ceiling {
+		t.Fatalf("dodge %.3f exceeds the constraint's %.3f", got, ceiling)
 	}
 }

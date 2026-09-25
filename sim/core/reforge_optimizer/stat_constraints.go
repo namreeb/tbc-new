@@ -3,6 +3,7 @@ package reforgeoptimizer
 import (
 	"errors"
 
+	"github.com/wowsims/tbc/sim/core"
 	"github.com/wowsims/tbc/sim/core/proto"
 	"github.com/wowsims/tbc/sim/core/stats"
 )
@@ -76,6 +77,45 @@ func statConstraintBound(op proto.BulkStatConstraintOp, gap float64) (lpConstrai
 	return lpConstraint{}, false
 }
 
+// The character sheet floors defense to whole defense points, while the model credits defense
+// rating linearly, so a stat with a defense term can end up to one defense point away from the
+// model's value, in either direction. For those stats a bound is moved one point inward when gems
+// can carry defense, so the floored value still meets it. Equality has no such room and is left
+// as it is.
+func defenseFloorMargin(unitStat stats.UnitStat, op proto.BulkStatConstraintOp, variables *lpVariables) float64 {
+	if !unitStat.IsPseudoStat() || op == proto.BulkStatConstraintOp_BulkStatConstraintOpEqual {
+		return 0
+	}
+	switch proto.PseudoStat(unitStat.PseudoStatIdx()) {
+	case proto.PseudoStat_PseudoStatReducedCritTakenPercent, proto.PseudoStat_PseudoStatDodgePercent, proto.PseudoStat_PseudoStatParryPercent:
+		if variablesCarryKey(variables, statCoeffKey(proto.Stat_StatDefenseRating)) {
+			return core.MissDodgeParryBlockCritChancePerDefense
+		}
+	}
+	return 0
+}
+
+// constrainedStatKeys returns the coefficient keys of the stats the request's stat constraints
+// name, or nil when there are none.
+func (o *reforgeOptimizer) constrainedStatKeys() []string {
+	var keys []string
+	for _, constraint := range o.request.GetStatConstraints() {
+		if unitStat, ok := statConstraintUnitStat(constraint); ok {
+			keys = append(keys, coeffKeyForUnitStat(unitStat))
+		}
+	}
+	return keys
+}
+
+func gemMovesConstrainedStat(gem gemData, constrainedKeys []string) bool {
+	for _, key := range constrainedKeys {
+		if gem.capCoeffs[key] != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func variablesCarryKey(variables *lpVariables, key string) bool {
 	found := false
 	variables.each(func(_ string, coeffs map[string]float64) {
@@ -110,6 +150,13 @@ func (o *reforgeOptimizer) statConstraintRows(variables *lpVariables) (map[strin
 			continue
 		}
 		bound, _ = statConstraintBound(constraint.GetOp(), constraint.GetValue()-base)
+		margin := defenseFloorMargin(unitStat, constraint.GetOp(), variables)
+		if bound.hasMin {
+			bound.min += margin
+		}
+		if bound.hasMax {
+			bound.max -= margin
+		}
 		rows[key] = tightenConstraint(rows[key], bound)
 	}
 	return rows, nil
