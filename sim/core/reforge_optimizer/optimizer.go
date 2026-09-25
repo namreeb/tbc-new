@@ -133,6 +133,10 @@ type reforgeOptimizer struct {
 	baseStats         core.UnitStats
 	// capBaseStats adds the raid's debuffs on top of baseStats; caps are evaluated against it.
 	capBaseStats core.UnitStats
+
+	// The keys of the rows the stat constraints added to the model. Used to tell whether an
+	// infeasible model is the constraints' doing.
+	statConstraintRowKeys map[string]bool
 }
 
 // newReforgeOptimizer builds the optimizer context from the request: strips gems for the
@@ -212,8 +216,10 @@ func (o *reforgeOptimizer) optimizeReforges() (*proto.EquipmentSpec, float64, er
 	if err != nil {
 		return nil, 0, err
 	}
+	o.statConstraintRowKeys = make(map[string]bool, len(statConstraintRows))
 	for key, row := range statConstraintRows {
 		constraints.set(key, row)
+		o.statConstraintRowKeys[key] = true
 	}
 
 	timeoutSeconds := optimizerTimeout.Seconds()

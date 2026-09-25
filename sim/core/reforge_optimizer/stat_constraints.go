@@ -2,6 +2,7 @@ package reforgeoptimizer
 
 import (
 	"errors"
+	"time"
 
 	"github.com/wowsims/tbc/sim/core"
 	"github.com/wowsims/tbc/sim/core/proto"
@@ -160,4 +161,25 @@ func (o *reforgeOptimizer) statConstraintRows(variables *lpVariables) (map[strin
 		rows[key] = tightenConstraint(rows[key], bound)
 	}
 	return rows, nil
+}
+
+// statConstraintsCauseInfeasibility reports whether an infeasible model is infeasible because of
+// the stat constraints' rows: the same model without them has a solution. When they are not the
+// cause (a meta gem's colour rule, an upper-bound cap the gear already exceeds), the failure is
+// reported as that, so the batch falls back to the candidate's own gear instead of dropping it.
+// A relaxed solve that ends without an answer (a timeout) does not blame the constraints either.
+func (o *reforgeOptimizer) statConstraintsCauseInfeasibility(model *lpModel, maxSeconds float64) bool {
+	if len(o.statConstraintRowKeys) == 0 {
+		return false
+	}
+	relaxed := newLPConstraints()
+	model.constraints.each(func(name string, row lpConstraint) {
+		if !o.statConstraintRowKeys[name] {
+			relaxed.set(name, row)
+		}
+	})
+	relaxedModel := *model
+	relaxedModel.constraints = relaxed
+	solution, err := solveLPModel(&relaxedModel, time.Duration(max(maxSeconds, minSolveSeconds)*float64(time.Second)), 0)
+	return err == nil && solution.status == "optimal"
 }

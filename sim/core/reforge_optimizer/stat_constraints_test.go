@@ -4,6 +4,7 @@ package reforgeoptimizer
 
 import (
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/wowsims/tbc/sim"
@@ -190,5 +191,62 @@ func TestStatConstraintsOnTankStats(t *testing.T) {
 	finalStats, _ := optimizedFinalStats(t, request)
 	if got := getUnitStat(finalStats, dodge); got > ceiling {
 		t.Fatalf("dodge %.3f exceeds the constraint's %.3f", got, ceiling)
+	}
+}
+
+// A model that is infeasible for a reason unrelated to the stat constraints must be reported as
+// that reason, not as unmet constraints: the batch drops a candidate flagged as infeasible stat
+// constraints, where any other optimizer failure falls back to the candidate's own gear.
+func TestInfeasibleModelIsNotBlamedOnStatConstraints(t *testing.T) {
+	sim.RegisterAll()
+	baseRequest := loadPreset(t, "gem-pool-wide.test.json")
+	optimizer, err := newReforgeOptimizer(baseRequest, simsignals.CreateSignals())
+	if err != nil {
+		t.Fatalf("newReforgeOptimizer: %v", err)
+	}
+	base := optimizer.capBaseStats
+
+	// An upper-bound Stamina cap below what the gear has without gems: no gem choice can lower
+	// Stamina, so the solver finds the caps impossible, constraints or not.
+	impossibleCaps := func() *proto.ReforgeOptimizeRequest {
+		request := loadPreset(t, "gem-pool-wide.test.json")
+		caps := make([]float64, stats.ProtoStatsLen)
+		caps[stats.Stamina] = base.Stats[stats.Stamina] - 10
+		request.Settings.StatCaps = &proto.UnitStats{Stats: caps, PseudoStats: make([]float64, stats.PseudoStatsLen)}
+		request.UndershootCaps = &proto.UnitStats{Stats: slices.Clone(caps), PseudoStats: make([]float64, stats.PseudoStatsLen)}
+		return request
+	}
+	unconstrained := Optimize(impossibleCaps())
+	if unconstrained.GetError() == nil || unconstrained.GetInfeasibleStatConstraints() {
+		t.Fatalf("the impossible cap alone should fail as a cap error, got %+v", unconstrained)
+	}
+
+	for _, tc := range []struct {
+		name       string
+		constraint *proto.BulkStatConstraint
+	}{
+		// Decided on the base stats: it adds no row to the model at all.
+		{"constraint without a row", statConstraint(proto.Stat_StatFireResistance, proto.BulkStatConstraintOp_BulkStatConstraintOpGreaterThanOrEqual, base.Stats[stats.FireResistance])},
+		// A row, but one the gems meet trivially.
+		{"constraint with a satisfiable row", statConstraint(proto.Stat_StatSpellDamage, proto.BulkStatConstraintOp_BulkStatConstraintOpGreaterThanOrEqual, base.Stats[stats.SpellDamage])},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			request := impossibleCaps()
+			request.StatConstraints = []*proto.BulkStatConstraint{tc.constraint}
+			result := Optimize(request)
+			if result.GetInfeasibleStatConstraints() {
+				t.Fatalf("the cap made the model infeasible, but it was blamed on the stat constraint: %s", result.GetError().GetMessage())
+			}
+			if result.GetError().GetMessage() != unconstrained.GetError().GetMessage() {
+				t.Fatalf("got error %q, want the cap error %q", result.GetError().GetMessage(), unconstrained.GetError().GetMessage())
+			}
+		})
+	}
+
+	// And the reverse still holds: when the constraint is what cannot be met, it is blamed.
+	request := loadPreset(t, "gem-pool-wide.test.json")
+	request.StatConstraints = []*proto.BulkStatConstraint{statConstraint(proto.Stat_StatSpellDamage, proto.BulkStatConstraintOp_BulkStatConstraintOpGreaterThanOrEqual, base.Stats[stats.SpellDamage]+100000)}
+	if result := Optimize(request); !result.GetInfeasibleStatConstraints() {
+		t.Fatalf("an unreachable constraint must be reported as infeasible stat constraints, got %+v", result.GetError())
 	}
 }
