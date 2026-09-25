@@ -784,9 +784,6 @@ message BulkStatConstraint {
 message BulkGearCandidate {
 	int32 index = 1;
 	EquipmentSpec gear = 2;
-	// Set by the gem optimizer pre-pass when no gem choice satisfies the batch's stat
-	// constraints: the candidate is counted as skipped and not simmed.
-	bool skipped_by_constraints = 3;
 }
 
 message BulkSimResult {

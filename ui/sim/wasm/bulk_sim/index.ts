@@ -77,18 +77,9 @@ export const runConcurrentBulkSim = async (
 		}
 	}
 	const simmingStartedAt = new Date().getTime();
-	// Candidates the gem optimizer pre-pass ruled out (no gem choice met the stat
-	// constraints) are counted as skipped and not simmed.
-	let skippedByConstraints = 0;
 	let candidates = request.candidates
 		.filter(candidate => candidate.gear)
-		.flatMap((candidate: BulkGearCandidate) => {
-			if (candidate.skippedByConstraints) {
-				skippedByConstraints++;
-				return [];
-			}
-			return [{ index: candidate.index, gear: candidate.gear! }];
-		});
+		.map((candidate: BulkGearCandidate) => ({ index: candidate.index, gear: candidate.gear! }));
 	const topResults = request.topResults > 0 ? request.topResults : BULK_SIM_DEFAULT_TOP_RESULTS;
 	const result = BulkSimResult.create({ timings: BulkSimTimings.create() });
 
@@ -97,7 +88,7 @@ export const runConcurrentBulkSim = async (
 	const constraintResult = await filterBulkSimCandidatesByConstraints(request, candidates, workerPool, onProgress, signals);
 	if (constraintResult.error) return makeAndSendBulkSimError(constraintResult.error, onProgress, request.optimizedCandidates);
 	candidates = constraintResult.candidates;
-	result.skippedByConstraints = skippedByConstraints + constraintResult.skipped;
+	result.skippedByConstraints = constraintResult.skipped;
 
 	if (candidates.length == 0) {
 		const baseline = await runSingleBulkSimCandidate(

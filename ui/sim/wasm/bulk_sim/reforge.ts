@@ -57,16 +57,16 @@ export const optimizeReforgeCandidates = async (
 		if (!solve.gear && !solve.infeasibleStatConstraints && !signals.abort.isTriggered() && includeGems) {
 			solve = await gearCache.optimize(candidate.gear, gearKey, false);
 		}
-		if (solve.infeasibleStatConstraints) {
-			const completedCandidates = collector.recordSkipped(candidate, position);
-			emitter.report(completedCandidates, completedCandidates, 0);
-			return;
-		}
 		let optimizedGear = solve.gear;
 		const optimizedSuccessfully = !!optimizedGear;
 		if (!optimizedGear) {
 			if (signals.abort.isTriggered()) return;
-			console.warn(`[Bulk Sim] Reforge optimization failed for candidate ${candidate.index}; using original gear`);
+			// No gem choice from the pool meets the stat constraints: that says nothing about the
+			// gems the candidate already has, so it keeps them, like a failed solve, and the
+			// final-stats check decides. Not logged: with a constraint, that can be most candidates.
+			if (!solve.infeasibleStatConstraints) {
+				console.warn(`[Bulk Sim] Reforge optimization failed for candidate ${candidate.index}; using original gear`);
+			}
 			optimizedGear = candidate.gear;
 		}
 
@@ -105,12 +105,6 @@ const dedupeBulkSimReforgeCandidates = (request: BulkSimRequest, candidates: Bul
 	const deduped: BulkGearCandidate[] = [];
 	for (const candidate of candidates) {
 		if (!candidate.gear) continue;
-		// A candidate the constraints ruled out is kept so the batch sim counts it as
-		// skipped; its gear is the original and would otherwise collide with a sibling's.
-		if (candidate.skippedByConstraints) {
-			deduped.push(candidate);
-			continue;
-		}
 
 		const gearKey = reforgeGearKey(candidate.gear);
 		if (seenGearKeys.has(gearKey)) continue;
@@ -199,13 +193,6 @@ const makeBulkSimReforgeCollector = (baselineGear: EquipmentSpec | undefined, ca
 				seenGearKeys.add(gearKey);
 				completedByPosition[position] = BulkGearCandidate.create({ index: candidate.index, gear: optimizedGear });
 			}
-			completedCandidates++;
-			return completedCandidates;
-		},
-		// A candidate no gem choice can bring within the stat constraints: kept, flagged, so
-		// the batch sim counts it as skipped instead of simming it.
-		recordSkipped: (candidate: BulkGearCandidate, position: number): number => {
-			completedByPosition[position] = BulkGearCandidate.create({ index: candidate.index, gear: candidate.gear, skippedByConstraints: true });
 			completedCandidates++;
 			return completedCandidates;
 		},

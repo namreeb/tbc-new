@@ -48,8 +48,6 @@ func TestBulkSimStatConstraints(t *testing.T) {
 		Candidates: []*proto.BulkGearCandidate{
 			{Index: 0, Gear: robeGear},
 			{Index: 1, Gear: shoulderlessGear},
-			// Ruled out by the gem optimizer pre-pass: counted as skipped, never simmed.
-			{Index: 2, Gear: robeGear, SkippedByConstraints: true},
 		},
 		TopResults:          5,
 		HighStageIterations: 50,
@@ -67,8 +65,8 @@ func TestBulkSimStatConstraints(t *testing.T) {
 	if result.Error != nil {
 		t.Fatalf("constrained batch failed: %s", result.Error.Message)
 	}
-	if result.SkippedByConstraints != 2 {
-		t.Fatalf("skipped %d candidates, want 2 (one by the pre-pass, one by final stats)", result.SkippedByConstraints)
+	if result.SkippedByConstraints != 1 {
+		t.Fatalf("skipped %d candidates, want 1", result.SkippedByConstraints)
 	}
 	if len(result.TopResults) != 1 || result.TopResults[0].Gear.Items[proto.ItemSlot_ItemSlotChest].Id != infernoweaveRobe {
 		t.Fatalf("only the robe should survive, got %d results: %+v", len(result.TopResults), result.TopResults)
@@ -80,14 +78,14 @@ func TestBulkSimStatConstraints(t *testing.T) {
 	// Nothing passes: still a successful run, with the baseline and no results.
 	request.BulkSettings.StatConstraints[0].Value = baseFireRes + 1000
 	result = bulk.BulkSim(request)
-	if result.Error != nil || result.SkippedByConstraints != 3 || len(result.TopResults) != 0 || result.Baseline == nil {
+	if result.Error != nil || result.SkippedByConstraints != 2 || len(result.TopResults) != 0 || result.Baseline == nil {
 		t.Fatalf("all-skipped batch: err %v skipped %d results %d", result.Error, result.SkippedByConstraints, len(result.TopResults))
 	}
 
-	// No constraints: the pre-pass verdict still stands; the other two are simmed.
+	// No constraints: both candidates are simmed and nothing is skipped.
 	request.BulkSettings.StatConstraints = nil
 	result = bulk.BulkSim(request)
-	if result.Error != nil || result.SkippedByConstraints != 1 || len(result.TopResults) != 2 {
+	if result.Error != nil || result.SkippedByConstraints != 0 || len(result.TopResults) != 2 {
 		t.Fatalf("unconstrained batch: err %v skipped %d results %d", result.Error, result.SkippedByConstraints, len(result.TopResults))
 	}
 }

@@ -34,8 +34,8 @@ type bulkSimReforgeCandidateCacheKey struct {
 // of running their own: candidate de-duplication happens after this pre-pass, so duplicate gear
 // sets do reach the optimizer, and a single solve can take seconds. gear is written before done
 // is closed, so a waiter that has received from done reads it safely.
-// The outcome of one solve: the gear, or nil when it failed; infeasible when the batch's
-// stat constraints cannot be met by any gem choice for that gear.
+// The outcome of one solve: the gear, or nil when it failed; infeasible when no gem choice
+// from the pool meets the batch's stat constraints for that gear.
 type bulkSimReforgeSolve struct {
 	gear       *proto.EquipmentSpec
 	infeasible bool
@@ -408,8 +408,10 @@ func optimizeBulkSimReforgeCandidateTask(optimizer *bulkSimReforgeOptimizer, _ *
 	startedAt := time.Now()
 	gearKey := bulkSimReforgeGearKey(candidate.Gear)
 	solve := optimizer.optimizeWithKey(candidate.Gear, gearKey, signals)
+	// No gem choice from the pool meets the stat constraints. That says nothing about the gems the
+	// candidate already has, so it keeps them, like a failed solve, and the final-stats check in
+	// the bulk sim decides. It is not logged: with a constraint, that can be most candidates.
 	if solve.infeasible {
-		candidate.SkippedByConstraints = true
 		return time.Since(startedAt), true, false
 	}
 	optimizedGear := solve.gear
@@ -562,12 +564,6 @@ func dedupeBulkSimReforgeCandidates(baselineGear *proto.EquipmentSpec, candidate
 			continue
 		}
 
-		// A candidate the constraints ruled out is kept so the batch sim counts it as
-		// skipped; its gear is the original and would otherwise collide with a sibling's.
-		if candidate.SkippedByConstraints {
-			deduped = append(deduped, candidate)
-			continue
-		}
 		key := bulkSimReforgeGearKey(candidate.Gear)
 		if _, ok := seen[key]; ok {
 			continue
