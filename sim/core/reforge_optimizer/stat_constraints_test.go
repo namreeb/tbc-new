@@ -250,3 +250,80 @@ func TestInfeasibleModelIsNotBlamedOnStatConstraints(t *testing.T) {
 		t.Fatalf("an unreachable constraint must be reported as infeasible stat constraints, got %+v", result.GetError())
 	}
 }
+
+// A stat constraint and a cap on the same stat are independent rows: the cap still pins the stat
+// and zeroes its value once a solution passes it, and the constraint still holds. Cap refinement
+// used to skip a stat that already had a constraint row, so hit kept its full value past the cap.
+func TestStatConstraintAndHardCapOnSameStat(t *testing.T) {
+	sim.RegisterAll()
+	spellHit := stats.UnitStatFromPseudoStat(proto.PseudoStat_PseudoStatSpellHitPercent)
+	optimizer, err := newReforgeOptimizer(loadPreset(t, "gem-pool-wide.test.json"), simsignals.CreateSignals())
+	if err != nil {
+		t.Fatalf("newReforgeOptimizer: %v", err)
+	}
+	base := getUnitStat(optimizer.capBaseStats, spellHit)
+	// Final stats leave the sheet's debuffs out; caps and constraints include them.
+	sheetOffset := getUnitStat(optimizer.capBaseStats, spellHit) - getUnitStat(optimizer.baseStats, spellHit)
+	sheet := func(finalStats core.UnitStats) float64 { return getUnitStat(finalStats, spellHit) + sheetOffset }
+
+	// The free gems add about 1.6% spell hit; cap it well below that so refinement has to fire.
+	capValue := base + 0.5
+	withCap := func(undershoot bool) *proto.ReforgeOptimizeRequest {
+		request := loadPreset(t, "gem-pool-wide.test.json")
+		caps := &proto.UnitStats{Stats: make([]float64, stats.ProtoStatsLen), PseudoStats: make([]float64, stats.PseudoStatsLen)}
+		caps.PseudoStats[proto.PseudoStat_PseudoStatSpellHitPercent] = capValue
+		request.Settings.StatCaps = caps
+		if undershoot {
+			request.UndershootCaps = googleProto.Clone(caps).(*proto.UnitStats)
+		}
+		return request
+	}
+	capOnly, capOnlyScore := optimizedFinalStats(t, withCap(false))
+	if sheet(capOnly) >= base+1.5 {
+		t.Fatalf("the cap alone should stop the gems short of the free solve, got %.2f", sheet(capOnly))
+	}
+
+	// A constraint the cap already implies: the same solution as the cap alone.
+	request := withCap(false)
+	request.StatConstraints = []*proto.BulkStatConstraint{pseudoStatConstraint(proto.PseudoStat_PseudoStatSpellHitPercent, proto.BulkStatConstraintOp_BulkStatConstraintOpGreaterThanOrEqual, base+0.2)}
+	constrained, constrainedScore := optimizedFinalStats(t, request)
+	if math.Abs(constrainedScore-capOnlyScore) > 1e-9 || sheet(constrained) > sheet(capOnly)+1e-9 {
+		t.Fatalf("with the constraint the cap no longer holds: hit %.3f score %.3f, cap alone hit %.3f score %.3f", sheet(constrained), constrainedScore, sheet(capOnly), capOnlyScore)
+	}
+
+	// An upper-bound (undershoot) cap: the ceiling still applies with a constraint present.
+	request = withCap(true)
+	request.StatConstraints = []*proto.BulkStatConstraint{pseudoStatConstraint(proto.PseudoStat_PseudoStatSpellHitPercent, proto.BulkStatConstraintOp_BulkStatConstraintOpGreaterThanOrEqual, base+0.2)}
+	undershot, _ := optimizedFinalStats(t, request)
+	if sheet(undershot) > capValue+1e-9 {
+		t.Fatalf("hit %.3f overshoots the upper-bound cap %.3f", sheet(undershot), capValue)
+	}
+}
+
+// Soft-cap refinement adds its own row for a stat; it used to replace the constraint's row, so an
+// upper bound on a soft-capped stat was lost once the first breakpoint was passed.
+func TestStatConstraintAndSoftCapOnSameStat(t *testing.T) {
+	sim.RegisterAll()
+	critReduction := stats.UnitStatFromPseudoStat(proto.PseudoStat_PseudoStatReducedCritTakenPercent)
+	// Protection Paladin with a soft cap on crit reduction at 5.6%, which the gear already exceeds.
+	unconstrained, _ := optimizedFinalStats(t, loadPreset(t, "tank-soft-caps.test.json"))
+	free := getUnitStat(unconstrained, critReduction)
+
+	// A floor above the free solve: the gems must reach it.
+	floor := free + 0.2
+	request := loadPreset(t, "tank-soft-caps.test.json")
+	request.StatConstraints = []*proto.BulkStatConstraint{pseudoStatConstraint(proto.PseudoStat_PseudoStatReducedCritTakenPercent, proto.BulkStatConstraintOp_BulkStatConstraintOpGreaterThanOrEqual, floor)}
+	raised, _ := optimizedFinalStats(t, request)
+	if got := getUnitStat(raised, critReduction); got < floor {
+		t.Fatalf("crit reduction %.3f is below the constraint's %.3f", got, floor)
+	}
+
+	// A ceiling below the free solve: the gems must stay under it.
+	ceiling := free - 0.04
+	request = loadPreset(t, "tank-soft-caps.test.json")
+	request.StatConstraints = []*proto.BulkStatConstraint{pseudoStatConstraint(proto.PseudoStat_PseudoStatReducedCritTakenPercent, proto.BulkStatConstraintOp_BulkStatConstraintOpLessThanOrEqual, ceiling)}
+	lowered, _ := optimizedFinalStats(t, request)
+	if got := getUnitStat(lowered, critReduction); got > ceiling {
+		t.Fatalf("crit reduction %.3f exceeds the constraint's %.3f", got, ceiling)
+	}
+}

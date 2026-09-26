@@ -127,10 +127,18 @@ func variablesCarryKey(variables *lpVariables, key string) bool {
 	return found
 }
 
-// statConstraintRows returns the model rows for the request's stat constraints, keyed like
-// the cap rows (so a later cap on the same stat defers to the constraint). Returns
-// errStatConstraintsInfeasible when a constraint on a stat the gems cannot move already
-// fails on the base stats.
+// The row key of a stat constraint on the stat with the given coefficient key. Constraint rows
+// have their own keys, apart from the cap rows keyed by the stat itself, so cap refinement on the
+// same stat adds its row as usual (pinning the stat and zeroing its value once a solution passes
+// the cap) rather than skipping it, and soft-cap refinement does not overwrite the constraint.
+// Every variable that carries the stat carries the same coefficient under this key.
+func statConstraintRowKey(statKey string) string {
+	return "StatConstraint_" + statKey
+}
+
+// statConstraintRows returns the model rows for the request's stat constraints, adding their
+// coefficients to the variables. Returns errStatConstraintsInfeasible when a constraint on a
+// stat the gems cannot move already fails on the base stats.
 func (o *reforgeOptimizer) statConstraintRows(variables *lpVariables) (map[string]lpConstraint, error) {
 	rows := make(map[string]lpConstraint)
 	for _, constraint := range o.request.GetStatConstraints() {
@@ -158,7 +166,13 @@ func (o *reforgeOptimizer) statConstraintRows(variables *lpVariables) (map[strin
 		if bound.hasMax {
 			bound.max -= margin
 		}
-		rows[key] = tightenConstraint(rows[key], bound)
+		rowKey := statConstraintRowKey(key)
+		variables.each(func(_ string, coeffs map[string]float64) {
+			if coeff, ok := coeffs[key]; ok && coeff != 0 {
+				coeffs[rowKey] = coeff
+			}
+		})
+		rows[rowKey] = tightenConstraint(rows[rowKey], bound)
 	}
 	return rows, nil
 }
