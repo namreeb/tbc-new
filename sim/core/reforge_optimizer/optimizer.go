@@ -190,7 +190,7 @@ func newReforgeOptimizer(request *proto.ReforgeOptimizeRequest, signals simsigna
 		baseStrippedGear:  baseStrippedGear,
 		originalEquipment: &originalEquipment,
 		baseStats:         baseStats,
-		capBaseStats:      addUnitStats(baseStats, buildDebuffUnitStats(request.Raid)),
+		capBaseStats:      addUnitStats(baseStats, buildDebuffUnitStats(request.Raid, baseStats)),
 	}, nil
 }
 

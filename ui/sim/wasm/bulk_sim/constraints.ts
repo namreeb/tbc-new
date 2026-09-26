@@ -1,9 +1,9 @@
 import { BulkSimRequest, BulkSimStage, ComputeStatsRequest, ErrorOutcome, ErrorOutcomeType, Raid } from '@generated/proto/api';
-import { Debuffs, UnitStats } from '@generated/proto/common';
+import { Class, Debuffs, Stat, UnitStats } from '@generated/proto/common';
 import { queue } from 'async';
 
 import { finalStatsPassConstraints } from '../../bulk/stat_constraints';
-import { characterSheetDebuffStats } from '../../player/debuff_stats';
+import { characterSheetDebuffStats, characterSheetExposeWeaknessAgility } from '../../player/debuff_stats';
 import { Database } from '../../proto/database';
 import { Stats } from '../../proto/stats';
 import { SimSignals } from '../../sim_signal_manager';
@@ -60,6 +60,7 @@ export const filterBulkSimCandidatesByConstraints = async (
 		encounter: request.baseRequest!.encounter,
 	});
 	const debuffs = request.baseRequest!.raid!.debuffs ?? Debuffs.create();
+	const basePlayer = request.baseRequest!.raid!.parties[0]?.players[0];
 	const passes = new Array<boolean>(candidates.length).fill(false);
 	let completed = 0;
 	let error: ErrorOutcome | undefined;
@@ -74,7 +75,13 @@ export const filterBulkSimCandidatesByConstraints = async (
 			}
 			const finalStats = result.raidStats?.parties[0]?.players[0]?.finalStats ?? UnitStats.create();
 			// Judged on the values the stats panel shows: final stats plus the raid's debuffs.
-			const sheetStats = Stats.fromProto(finalStats).add(characterSheetDebuffStats(debuffs)).toProto();
+			const exposeWeaknessAgility = characterSheetExposeWeaknessAgility(
+				debuffs,
+				basePlayer?.class ?? Class.ClassUnknown,
+				basePlayer?.talentsString ?? '',
+				finalStats.stats[Stat.StatAgility] ?? 0,
+			);
+			const sheetStats = Stats.fromProto(finalStats).add(characterSheetDebuffStats(debuffs, exposeWeaknessAgility)).toProto();
 			passes[idx] = finalStatsPassConstraints(constraints, sheetStats);
 			completed++;
 			emitter.report(completed, 0, 0);

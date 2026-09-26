@@ -1,9 +1,9 @@
 // The same table as sim/core/character_sheet_test.go: the TypeScript and Go copies of what the stats
 // panel adds for the raid's debuffs must agree.
-import { Debuffs, PseudoStat, Stat, TristateEffect } from '@generated/proto/common';
+import { Class, Debuffs, PseudoStat, Stat, TristateEffect } from '@generated/proto/common';
 import { describe, expect, it } from 'vitest';
 
-import { characterSheetDebuffStats } from './debuff_stats';
+import { characterSheetDebuffStats, characterSheetExposeWeaknessAgility } from './debuff_stats';
 
 type Expected = { stats?: Partial<Record<Stat, number>>; pseudoStats?: Partial<Record<PseudoStat, number>> };
 
@@ -42,7 +42,8 @@ const cases: Array<[string, Partial<Debuffs>, Expected]> = [
 
 describe('characterSheetDebuffStats', () => {
 	it.each(cases)('%s', (_name, debuffs, expected) => {
-		const result = characterSheetDebuffStats(Debuffs.create(debuffs)).toProto();
+		const debuffsProto = Debuffs.create(debuffs);
+		const result = characterSheetDebuffStats(debuffsProto, debuffsProto.exposeWeaknessHunterAgility).toProto();
 		result.stats.forEach((value, stat) => expect([Stat[stat], value]).toEqual([Stat[stat], expected.stats?.[stat as Stat] ?? 0]));
 		result.pseudoStats.forEach((value, pseudoStat) =>
 			expect([PseudoStat[pseudoStat], value]).toEqual([PseudoStat[pseudoStat], expected.pseudoStats?.[pseudoStat as PseudoStat] ?? 0]),
@@ -52,5 +53,22 @@ describe('characterSheetDebuffStats', () => {
 	it("credits the agility it is given for a hunter's own Expose Weakness", () => {
 		const result = characterSheetDebuffStats(Debuffs.create({ exposeWeaknessUptime: 1, exposeWeaknessHunterAgility: 800 }), 1000);
 		expect(result.getStat(Stat.StatAttackPower)).toBe(250);
+	});
+});
+
+// The same table as sim/core/character_sheet_test.go.
+describe('characterSheetExposeWeaknessAgility', () => {
+	// The Survival tree's 21st talent is Expose Weakness (proto field 62 = 21 + 20 + 21).
+	const exposeWeaknessTalents = '--' + '0'.repeat(20) + '1';
+	const debuffs = Debuffs.create({ exposeWeaknessUptime: 1, exposeWeaknessHunterAgility: 100 });
+
+	it.each([
+		['a hunter with the talent is credited their own agility', Class.ClassHunter, exposeWeaknessTalents, 700, 700],
+		['a hunter without the talent is credited the configured agility', Class.ClassHunter, '502-0550201205', 700, 100],
+		['another class is credited the configured agility', Class.ClassMage, exposeWeaknessTalents, 700, 100],
+		['unknown own agility falls back to the configured agility', Class.ClassHunter, exposeWeaknessTalents, 0, 100],
+		['a malformed talent string falls back to the configured agility', Class.ClassHunter, '9-9-9-9-9-9-9-9-9-9-9-9-9', 700, 100],
+	] as Array<[string, Class, string, number, number]>)('%s', (_name, playerClass, talents, characterAgility, expected) => {
+		expect(characterSheetExposeWeaknessAgility(debuffs, playerClass, talents, characterAgility)).toBe(expected);
 	});
 });

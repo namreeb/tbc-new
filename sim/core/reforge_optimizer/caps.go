@@ -24,8 +24,13 @@ type reforgeSoftCap struct {
 // they are absent from FinalStats. Caps, soft-cap breakpoints and batch stat constraints are
 // based on the UI display values, so we add these offsets to the base stats before computing
 // the gap to each of them.
-func buildDebuffUnitStats(raid *proto.Raid) core.UnitStats {
-	return core.CharacterSheetDebuffStats(raid.GetDebuffs())
+func buildDebuffUnitStats(raid *proto.Raid, baseStats core.UnitStats) core.UnitStats {
+	debuffs := raid.GetDebuffs()
+	var player *proto.Player
+	if parties := raid.GetParties(); len(parties) > 0 && len(parties[0].GetPlayers()) > 0 {
+		player = parties[0].GetPlayers()[0]
+	}
+	return core.CharacterSheetDebuffStats(debuffs, core.CharacterSheetExposeWeaknessAgility(debuffs, player, baseStats.Stats[stats.Agility]))
 }
 
 // ---------------------------------------------------------------------------

@@ -78,11 +78,14 @@ func bulkSimCandidateFinalStats(request *proto.BulkSimRequest, candidate BulkSim
 	}
 	player.Equipment = googleProto.Clone(candidate.Gear).(*proto.EquipmentSpec)
 	adjustCandidateImbues(player)
+	// Read before computing: building the character rewrites the raid's debuffs (a hunter with
+	// Expose Weakness clears the raid's copy of it), and the panel shows the configured ones.
+	debuffs := googleProto.Clone(raid.GetDebuffs()).(*proto.Debuffs)
 	result := core.ComputeStats(&proto.ComputeStatsRequest{Raid: raid, Encounter: request.BaseRequest.Encounter})
 	if result.ErrorResult != "" {
 		return nil, &proto.ErrorOutcome{Message: result.ErrorResult}
 	}
-	return core.WithCharacterSheetDebuffs(result.RaidStats.Parties[0].Players[0].FinalStats, raid.GetDebuffs()), nil
+	return core.WithCharacterSheetDebuffs(result.RaidStats.Parties[0].Players[0].FinalStats, debuffs, player), nil
 }
 
 // Keeps the candidates whose final stats satisfy every constraint, in order.

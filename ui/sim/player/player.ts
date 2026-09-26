@@ -74,7 +74,7 @@ import { playerTalentStringToProto } from '../talents/factory';
 import { omitDeep, stringComparator } from '../utils/collections';
 import { sum } from '../utils/math';
 import { WorkerProgressCallback } from '../workers/worker_pool';
-import { characterSheetDebuffStats } from './debuff_stats';
+import { characterSheetDebuffStats, characterSheetExposeWeaknessAgility } from './debuff_stats';
 import { PlayerClass } from './player_class';
 import { PlayerSpec } from './player_spec';
 import { PlayerSpecs } from './specs';
@@ -784,15 +784,8 @@ export class Player<SpecType extends Spec> {
 	// server's cumulative stat stages, so it is derived here and fed to computeStatAttribution.
 	getDebuffStats(): Stats {
 		const debuffs = this.sim.raid.getDebuffs();
-		// A hunter who applies Expose Weakness with their own talent credits their own agility.
-		let exposeWeaknessAgility = debuffs.exposeWeaknessHunterAgility;
-		if (debuffs.exposeWeaknessUptime && debuffs.exposeWeaknessHunterAgility && this.isSpec(Spec.SpecHunter)) {
-			const hunter = this as unknown as Player<Spec.SpecHunter>;
-			if (hunter.getTalents().exposeWeakness > 0) {
-				exposeWeaknessAgility = hunter.getCurrentStats().finalStats?.stats[Stat.StatAgility] ?? exposeWeaknessAgility;
-			}
-		}
-		return characterSheetDebuffStats(debuffs, exposeWeaknessAgility);
+		const ownAgility = this.getCurrentStats().finalStats?.stats[Stat.StatAgility] ?? 0;
+		return characterSheetDebuffStats(debuffs, characterSheetExposeWeaknessAgility(debuffs, this.getClass(), this.getTalentsString(), ownAgility));
 	}
 
 	getCritImmunityInfo() {
