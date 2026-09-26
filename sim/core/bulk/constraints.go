@@ -63,8 +63,8 @@ func bulkFinalStatsPassConstraints(constraints []*proto.BulkStatConstraint, fina
 	return true
 }
 
-// Final stats of the bulk player wearing the candidate's gear, as ComputeStats
-// reports them for the character sheet.
+// Final stats of the bulk player wearing the candidate's gear, as the stats panel shows them:
+// ComputeStats' final stats plus the raid debuffs the panel attributes to the character.
 func bulkSimCandidateFinalStats(request *proto.BulkSimRequest, candidate BulkSimCandidate) (finalStats *proto.UnitStats, errOutcome *proto.ErrorOutcome) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -82,7 +82,7 @@ func bulkSimCandidateFinalStats(request *proto.BulkSimRequest, candidate BulkSim
 	if result.ErrorResult != "" {
 		return nil, &proto.ErrorOutcome{Message: result.ErrorResult}
 	}
-	return result.RaidStats.Parties[0].Players[0].FinalStats, nil
+	return core.WithCharacterSheetDebuffs(result.RaidStats.Parties[0].Players[0].FinalStats, raid.GetDebuffs()), nil
 }
 
 // Keeps the candidates whose final stats satisfy every constraint, in order.

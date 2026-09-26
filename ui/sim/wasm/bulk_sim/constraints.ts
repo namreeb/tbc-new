@@ -1,9 +1,11 @@
 import { BulkSimRequest, BulkSimStage, ComputeStatsRequest, ErrorOutcome, ErrorOutcomeType, Raid } from '@generated/proto/api';
-import { UnitStats } from '@generated/proto/common';
+import { Debuffs, UnitStats } from '@generated/proto/common';
 import { queue } from 'async';
 
 import { finalStatsPassConstraints } from '../../bulk/stat_constraints';
+import { characterSheetDebuffStats } from '../../player/debuff_stats';
 import { Database } from '../../proto/database';
+import { Stats } from '../../proto/stats';
 import { SimSignals } from '../../sim_signal_manager';
 import { WorkerPool, WorkerProgressCallback } from '../../workers/worker_pool';
 import { makeBulkSimStageProgressEmitter } from './progress';
@@ -57,6 +59,7 @@ export const filterBulkSimCandidatesByConstraints = async (
 		raid: Raid.clone(request.baseRequest!.raid!),
 		encounter: request.baseRequest!.encounter,
 	});
+	const debuffs = request.baseRequest!.raid!.debuffs ?? Debuffs.create();
 	const passes = new Array<boolean>(candidates.length).fill(false);
 	let completed = 0;
 	let error: ErrorOutcome | undefined;
@@ -70,7 +73,9 @@ export const filterBulkSimCandidatesByConstraints = async (
 				return;
 			}
 			const finalStats = result.raidStats?.parties[0]?.players[0]?.finalStats ?? UnitStats.create();
-			passes[idx] = finalStatsPassConstraints(constraints, finalStats);
+			// Judged on the values the stats panel shows: final stats plus the raid's debuffs.
+			const sheetStats = Stats.fromProto(finalStats).add(characterSheetDebuffStats(debuffs)).toProto();
+			passes[idx] = finalStatsPassConstraints(constraints, sheetStats);
 			completed++;
 			emitter.report(completed, 0, 0);
 		},

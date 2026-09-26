@@ -89,3 +89,75 @@ func TestBulkSimStatConstraints(t *testing.T) {
 		t.Fatalf("unconstrained batch: err %v skipped %d results %d", result.Error, result.SkippedByConstraints, len(result.TopResults))
 	}
 }
+
+// Constraints are judged on the values the stats panel shows, which include the raid debuffs the
+// panel attributes to the character: Improved Seal of the Crusader's +3% crit and Improved Hunter's
+// Mark's +110 attack power here. A candidate the panel shows as meeting a constraint must be simmed.
+func TestBulkSimStatConstraintsSeeDebuffs(t *testing.T) {
+	player := core.WithSpec(&proto.Player{
+		Class:          proto.Class_ClassMage,
+		Race:           proto.Race_RaceTroll,
+		Equipment:      core.GetGearSet("../../ui/specs/mage/dps/gear_sets", "p1Arcane").GearSet,
+		Consumables:    &proto.ConsumesSpec{},
+		Buffs:          core.FullIndividualBuffs,
+		TalentsString:  "2500052300030150330125--053500031003001",
+		Profession1:    proto.Profession_Engineering,
+		Rotation:       core.GetAplRotation("../../ui/specs/mage/dps/apls", "arcane").Rotation,
+		ReactionTimeMs: 100,
+	}, &proto.Player_Mage{Mage: &proto.Mage{Options: &proto.Mage_Options{ClassOptions: &proto.MageOptions{DefaultMageArmor: proto.MageArmor_MageArmorMageArmor}}}})
+	debuffs := googleProto.Clone(core.FullDebuffs).(*proto.Debuffs)
+	debuffs.ImprovedSealOfTheCrusader = proto.TristateEffect_TristateEffectImproved
+	debuffs.HuntersMark = proto.TristateEffect_TristateEffectImproved
+	base := &proto.RaidSimRequest{
+		Raid:       core.SinglePlayerRaidProto(player, core.FullPartyBuffs, core.FullRaidBuffs, debuffs),
+		Encounter:  core.MakeDefaultEncounterCombos()[0].Encounter,
+		SimOptions: &proto.SimOptions{Iterations: 50, RandomSeed: 1},
+	}
+	// A candidate that differs from the equipped gear only in its chest.
+	candidateGear := googleProto.Clone(player.Equipment).(*proto.EquipmentSpec)
+	candidateGear.Items[proto.ItemSlot_ItemSlotChest] = &proto.ItemSpec{Id: 30762}
+	raid := googleProto.Clone(base.Raid).(*proto.Raid)
+	raid.Parties[0].Players[0].Equipment = candidateGear
+	raw := core.ComputeStats(&proto.ComputeStatsRequest{Raid: raid, Encounter: base.Encounter}).RaidStats.Parties[0].Players[0].FinalStats
+	rawSpellCrit := raw.PseudoStats[proto.PseudoStat_PseudoStatSpellCritPercent]
+	rawAttackPower := raw.Stats[proto.Stat_StatAttackPower]
+
+	run := func(constraint *proto.BulkStatConstraint) *proto.BulkSimResult {
+		request := &proto.BulkSimRequest{
+			BaseRequest:         base,
+			Candidates:          []*proto.BulkGearCandidate{{Index: 0, Gear: candidateGear}},
+			TopResults:          5,
+			HighStageIterations: 50,
+			BulkSettings:        &proto.BulkSettings{UseLegacyBulkSim: true, StatConstraints: []*proto.BulkStatConstraint{constraint}},
+		}
+		result := bulk.BulkSim(request)
+		if result.Error != nil {
+			t.Fatalf("batch failed: %s", result.Error.Message)
+		}
+		return result
+	}
+	atLeast := proto.BulkStatConstraintOp_BulkStatConstraintOpGreaterThanOrEqual
+	spellCrit := func(value float64) *proto.BulkStatConstraint {
+		return &proto.BulkStatConstraint{UnitStat: &proto.BulkStatConstraint_PseudoStat{PseudoStat: proto.PseudoStat_PseudoStatSpellCritPercent}, Op: atLeast, Value: value}
+	}
+	attackPower := func(value float64) *proto.BulkStatConstraint {
+		return &proto.BulkStatConstraint{UnitStat: &proto.BulkStatConstraint_Stat{Stat: proto.Stat_StatAttackPower}, Op: atLeast, Value: value}
+	}
+
+	for _, tc := range []struct {
+		name       string
+		constraint *proto.BulkStatConstraint
+		simmed     bool
+	}{
+		{"spell crit as the panel shows it, with the seal's 3%", spellCrit(rawSpellCrit + 3), true},
+		{"attack power as the panel shows it, with the mark's 110", attackPower(rawAttackPower + 110), true},
+		{"spell crit beyond what the panel shows", spellCrit(rawSpellCrit + 3.5), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result := run(tc.constraint)
+			if simmed := len(result.TopResults) == 1 && result.SkippedByConstraints == 0; simmed != tc.simmed {
+				t.Fatalf("simmed = %v, want %v (skipped %d, results %d)", simmed, tc.simmed, result.SkippedByConstraints, len(result.TopResults))
+			}
+		})
+	}
+}
